@@ -4,8 +4,8 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import Navbar from './components/Navbar';
 import AdminLayout from './components/AdminLayout';
 import { AuthProvider } from './context/AuthContext';
-import { CartProvider } from './context/CartContext';
 import CartSidebar from './components/CartSidebar';
+import AiAssistantModal from './components/AiAssistantModal';
 
 // Lazy loaded pages
 const Home = lazy(() => import('./pages/Home'));
@@ -50,6 +50,7 @@ function App() {
           <div className="min-h-screen flex flex-col bg-slate-50">
             <Suspense fallback={<Loader />}>
               <CartSidebar />
+              <AiAssistantModal />
               <Routes>
                 {/* Public Routes with Navbar */}
                 <Route path="/" element={

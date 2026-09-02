@@ -1,0 +1,18 @@
+{
+  "name": "ecommerce-ai-server",
+  "version": "1.0.0",
+  "description": "AI Shopping Assistant Backend Server",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "generate-embeddings": "node generate-embeddings.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "firebase-admin": "^12.7.0"
+  }
+}
