@@ -1,0 +1,290 @@
+import { useState, useEffect } from 'react';
+import { db } from '../../lib/firebase';
+import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { Package, Clock, CheckCircle, X, MapPin, Search } from 'lucide-react';
+
+export default function AdminOrders() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'orders'), (querySnapshot) => {
+      let ordersList = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Sort descending by date in memory
+      ordersList.sort((a, b) => {
+        const timeA = a.created_at?.toMillis ? a.created_at.toMillis() : 0;
+        const timeB = b.created_at?.toMillis ? b.created_at.toMillis() : 0;
+        return timeB - timeA;
+      });
+
+      setOrders(ordersList);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching orders:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleStatusChange = async (orderId, newStatus) => {
+    setUpdating(orderId);
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, {
+        status: newStatus
+      });
+      
+      // Update local state
+      setOrders(orders.map(order => 
+        order.id === orderId ? { ...order, status: newStatus } : order
+      ));
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      alert("Failed to update status");
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  const filteredOrders = orders.filter(order => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    const orderId = (order.order_number || order.id.slice(0, 8)).toLowerCase();
+    return orderId.includes(term);
+  });
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Orders</h1>
+          <p className="text-slate-500 mt-1">Manage all customer orders</p>
+        </div>
+        
+        <form 
+          onSubmit={(e) => {
+            e.preventDefault();
+            const term = searchTerm.toLowerCase().trim();
+            const match = orders.find(o => 
+              (o.order_number && o.order_number.toLowerCase() === term) || 
+              (o.id.toLowerCase() === term) ||
+              (o.id.slice(0, 8).toLowerCase() === term)
+            );
+            if (match) {
+              setSelectedOrder(match);
+              setSearchTerm(''); // Clear search after opening
+            } else {
+              alert("Order not found! Please check the ID.");
+            }
+          }}
+          className="relative"
+        >
+          <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Enter Order ID & press Enter" 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 w-full sm:w-64 bg-white"
+          />
+        </form>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[800px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="p-4 font-semibold text-slate-600 text-sm whitespace-nowrap">Order ID</th>
+                <th className="p-4 font-semibold text-slate-600 text-sm whitespace-nowrap">Items</th>
+                <th className="p-4 font-semibold text-slate-600 text-sm whitespace-nowrap">Customer</th>
+                <th className="p-4 font-semibold text-slate-600 text-sm whitespace-nowrap">Date</th>
+                <th className="p-4 font-semibold text-slate-600 text-sm whitespace-nowrap">Total</th>
+                <th className="p-4 font-semibold text-slate-600 text-sm whitespace-nowrap">Status</th>
+                <th className="p-4 font-semibold text-slate-600 text-sm whitespace-nowrap">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOrders.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="p-8 text-center text-slate-500">
+                    No orders found matching your search.
+                  </td>
+                </tr>
+              ) : (
+                filteredOrders.map((order) => (
+                  <tr key={order.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 text-sm font-medium text-slate-900">
+                      {order.order_number || order.id.slice(0, 8)}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex -space-x-2 overflow-hidden">
+                        {order.items?.slice(0, 4).map((item, i) => (
+                          <div key={i} className="inline-block h-10 w-10 rounded-full ring-2 ring-white bg-white border border-slate-200">
+                            {item.image_url ? (
+                              <img src={item.image_url} alt={item.name} className="h-full w-full object-contain p-1 rounded-full bg-white" title={item.name} />
+                            ) : (
+                              <Package className="h-full w-full p-2 text-slate-400 bg-slate-100 rounded-full" title={item.name} />
+                            )}
+                          </div>
+                        ))}
+                        {order.items?.length > 4 && (
+                          <div className="inline-flex items-center justify-center h-10 w-10 rounded-full ring-2 ring-white bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600">
+                            +{order.items.length - 4}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="text-sm font-medium text-slate-900">{order.customer?.full_name || order.customer?.name || 'Unknown'}</div>
+                      <div className="text-xs text-slate-500">{order.customer?.email}</div>
+                    </td>
+                    <td className="p-4 text-sm text-slate-600">
+                      {order.created_at?.toDate ? new Date(order.created_at.toDate()).toLocaleDateString() : 'N/A'}
+                    </td>
+                    <td className="p-4 text-sm font-bold text-slate-900">
+                      ₹{order.pricing?.total?.toFixed(2) || '0.00'}
+                    </td>
+                    <td className="p-4">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        order.status === 'processing' ? 'bg-blue-50 text-blue-700' :
+                        order.status === 'shipped' ? 'bg-indigo-50 text-indigo-700' :
+                        order.status === 'delivered' ? 'bg-green-50 text-green-700' :
+                        'bg-slate-100 text-slate-700'
+                      }`}>
+                        {order.status === 'processing' && <Clock className="w-3 h-3 mr-1" />}
+                        {order.status === 'delivered' && <CheckCircle className="w-3 h-3 mr-1" />}
+                        {order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Pending'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-sm">
+                      <select 
+                        value={order.status || 'pending'}
+                        onChange={(e) => handleStatusChange(order.id, e.target.value)}
+                        disabled={updating === order.id}
+                        className="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block w-full p-2"
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="processing">Processing</option>
+                        <option value="shipped">Shipped</option>
+                        <option value="delivered">Delivered</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Order Details Modal */}
+      {selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Order #{selectedOrder.order_number || selectedOrder.id.slice(0, 8)}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  {selectedOrder.created_at?.toDate ? new Date(selectedOrder.created_at.toDate()).toLocaleString() : 'N/A'}
+                </p>
+              </div>
+              <button 
+                onClick={() => setSelectedOrder(null)} 
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-8">
+              {/* Customer & Shipping */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 mb-3 uppercase tracking-wider">Customer Details</h3>
+                  <div className="bg-slate-50 p-4 rounded-xl h-full border border-slate-100">
+                    <p className="font-medium text-slate-900">{selectedOrder.customer?.full_name || 'Unknown'}</p>
+                    <p className="text-slate-600 text-sm mt-1">{selectedOrder.customer?.email}</p>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 mb-3 uppercase tracking-wider flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-slate-400" /> Shipping Address
+                  </h3>
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm text-slate-600 leading-relaxed h-full">
+                    <p className="font-medium text-slate-900">{selectedOrder.shipping_address?.full_name}</p>
+                    <p>{selectedOrder.shipping_address?.address_line1}</p>
+                    {selectedOrder.shipping_address?.address_line2 && <p>{selectedOrder.shipping_address?.address_line2}</p>}
+                    <p>{selectedOrder.shipping_address?.city}, {selectedOrder.shipping_address?.state} {selectedOrder.shipping_address?.postal_code}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Items */}
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 mb-3 uppercase tracking-wider">Order Items</h3>
+                <div className="border border-slate-200 rounded-xl divide-y divide-slate-100">
+                  {selectedOrder.items?.map((item, index) => (
+                    <div key={index} className="flex items-center p-4 gap-4">
+                      <div className="h-16 w-16 bg-white rounded-lg border border-slate-200 p-1 flex-shrink-0">
+                        {item.image_url ? (
+                          <img src={item.image_url} alt={item.name} className="h-full w-full object-contain rounded-md" />
+                        ) : (
+                          <Package className="h-full w-full text-slate-300 p-2" />
+                        )}
+                      </div>
+                      <div className="flex-grow">
+                        <p className="font-medium text-slate-900">{item.name}</p>
+                        <p className="text-sm text-slate-500 mt-0.5">Qty: {item.quantity} &times; ₹{Number(item.price).toFixed(2)}</p>
+                      </div>
+                      <div className="font-bold text-slate-900 whitespace-nowrap">
+                        ₹{(Number(item.price) * item.quantity).toFixed(2)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Totals */}
+              <div className="flex justify-end pt-4">
+                <div className="w-full sm:w-64 space-y-3">
+                  <div className="flex justify-between text-slate-600 text-sm">
+                    <span>Subtotal</span>
+                    <span>₹{selectedOrder.pricing?.subtotal?.toFixed(2) || '0.00'}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 text-sm">
+                    <span>Shipping</span>
+                    <span>₹{selectedOrder.pricing?.shipping?.toFixed(2) || '0.00'}</span>
+                  </div>
+                  <div className="flex justify-between text-lg font-bold text-slate-900 pt-3 border-t border-slate-200">
+                    <span>Total</span>
+                    <span>₹{selectedOrder.pricing?.total?.toFixed(2) || '0.00'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
