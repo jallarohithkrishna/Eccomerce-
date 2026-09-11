@@ -4,6 +4,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import Navbar from './components/Navbar';
 import AdminLayout from './components/AdminLayout';
 import { AuthProvider } from './context/AuthContext';
+import { CartProvider } from './context/CartContext';
 import CartSidebar from './components/CartSidebar';
 import AiAssistantModal from './components/AiAssistantModal';
 
