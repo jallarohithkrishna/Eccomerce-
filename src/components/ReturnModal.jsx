@@ -126,31 +126,31 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
 
       const newReturnRecord = {
         rma_number: rmaCode,
-        order_id: order.id,
-        order_number: order.order_number,
-        user_id: order.customer?.user_id,
+        order_id: order.id ?? null,
+        order_number: order.order_number ?? null,
+        user_id: order.customer?.user_id ?? null,
         status: returnStatus,
         status_label: statusLabel,
         approved_by: approvedBy,
         ai_assessment: {
           days_elapsed: daysElapsed,
-          policy_window: itemPolicy.window_days,
-          category: selectedItem.category,
-          policy_title: itemPolicy.title,
+          policy_window: itemPolicy.window_days ?? null,
+          category: selectedItem.category ?? null,
+          policy_title: itemPolicy.title ?? null,
           decision_rule: isAutoApproved 
             ? `Auto-approved under ${itemPolicy.title}. Return window valid (${daysElapsed}/${itemPolicy.window_days} days).`
             : `Flagged for manual review: Order age (${daysElapsed}d) or category requires human inspection.`
         },
         created_at: new Date().toISOString(),
         item: {
-          name: selectedItem.name,
-          price: Number(selectedItem.price),
+          name: selectedItem.name ?? null,
+          price: Number(selectedItem.price) || 0,
           quantity: returnQty,
-          image_url: selectedItem.image_url || selectedItem.images?.[0] || null,
-          category: selectedItem.category || 'General'
+          image_url: selectedItem.image_url ?? selectedItem.images?.[0] ?? null,
+          category: selectedItem.category ?? 'General'
         },
         reason_code: reasonCode,
-        customer_notes: customerNotes,
+        customer_notes: customerNotes ?? '',
         resolution_type: resolutionType,
         refund_amount: resolutionType === 'store_credit' ? totalStoreCredit : refundAmount,
         original_price: refundAmount,
@@ -160,7 +160,7 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
           tracking_number: trackingNumber,
           slot: pickupSlot === 'tomorrow_morning' ? 'Tomorrow, 10:00 AM - 1:00 PM' : 'Tomorrow, 2:00 PM - 6:00 PM',
           address: order.customer?.address 
-            ? `${order.customer.address.street || ''}, ${order.customer.address.city || ''} ${order.customer.address.zip_code || ''}`
+            ? `${order.customer.address.street ?? ''}, ${order.customer.address.city ?? ''} ${order.customer.address.zip_code ?? ''}`
             : 'Registered Customer Address'
         },
         timeline: [
