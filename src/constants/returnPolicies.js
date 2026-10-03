@@ -129,16 +129,110 @@ export const RETURN_POLICIES = {
   }
 };
 
-export function resolvePolicyForCategory(category = '') {
+export function isElectronicsItem(item = {}) {
+  if (!item) return false;
+
+  // 1. Explicit service_center_only policy
+  if (item.return_policy?.policy_type === 'service_center_only') return true;
+
+  // 2. Category match
+  const cat = (item.category || '').toLowerCase().trim();
+  const electronicsCategories = [
+    'electronics', 'smartphones', 'mobiles', 'mobile', 'phones', 'phone',
+    'laptops', 'laptop', 'tablets', 'tablet', 'computers', 'computer',
+    'smart-watches', 'smartwatch', 'wearables', 'wearable',
+    'headphones', 'earphones', 'speakers', 'audio',
+    'cameras', 'camera', 'tvs', 'tv', 'monitors', 'monitor',
+    'printers', 'printer', 'networking', 'gaming', 'consoles',
+    'mobile-accessories', 'laptop-accessories', 'computer-accessories',
+    'gadgets', 'gadget', 'tech', 'appliances'
+  ];
+  if (electronicsCategories.includes(cat)) return true;
+
+  const catKeywords = [
+    'phone', 'mobile', 'laptop', 'tablet', 'electronic', 'gadget',
+    'computer', 'camera', 'speaker', 'headphone', 'earphone', 'smartwatch',
+    'wearable', 'monitor', 'printer', 'console', 'gaming', 'tv', 'appliance'
+  ];
+  if (catKeywords.some(kw => cat.includes(kw))) return true;
+
+  // 3. Product Name / Title match (crucial when category was omitted from order item)
+  const name = (item.name || item.title || '').toLowerCase().trim();
+  const nameKeywords = [
+    'phone', 'iphone', 'galaxy', 'smartphone', 'mobile',
+    'tablet', 'ipad', 'tab',
+    'laptop', 'macbook', 'notebook', 'chromebook', 'thinkpad',
+    'computer', 'desktop', 'pc',
+    'headphone', 'earphone', 'earbud', 'airpod', 'headset', 'audio', 'speaker', 'soundbar',
+    'watch', 'smartwatch', 'band', 'fitbit',
+    'camera', 'dslr', 'gopro', 'camcorder',
+    'tv', 'television', 'monitor', 'display', 'screen',
+    'printer', 'scanner',
+    'console', 'playstation', 'ps4', 'ps5', 'xbox', 'nintendo',
+    'charger', 'cable', 'powerbank', 'adapter',
+    'keyboard', 'mouse', 'router', 'modem', 'drone',
+    'ssd', 'hard drive', 'usb', 'gpu', 'cpu', 'ram'
+  ];
+
+  if (nameKeywords.some(kw => {
+    const regex = new RegExp(`\\b${kw}\\b`, 'i');
+    return regex.test(name) || name.includes(kw);
+  })) {
+    return true;
+  }
+
+  return false;
+}
+
+export function resolvePolicyForItem(item = {}) {
+  if (!item) return RETURN_POLICIES.standard;
+
+  // Always enforce service center replacement for electronics regardless of where it came from
+  if (isElectronicsItem(item)) {
+    return RETURN_POLICIES.electronics;
+  }
+
+  if (item.return_policy) {
+    return item.return_policy;
+  }
+
+  return resolvePolicyForCategory(item.category, item.name);
+}
+
+export function resolvePolicyForCategory(category = '', itemName = '') {
+  // If item name indicates electronics, use electronics policy
+  if (itemName && isElectronicsItem({ name: itemName })) {
+    return RETURN_POLICIES.electronics;
+  }
+
   const cat = (category || '').toLowerCase().trim();
 
   if (cat === 'groceries') return RETURN_POLICIES.groceries;
-  if (['beauty', 'fragrances', 'skin-care'].includes(cat)) return RETURN_POLICIES.beauty;
-  if (['smartphones', 'laptops', 'tablets'].includes(cat)) return RETURN_POLICIES.electronics;
-  if (['mens-shirts', 'tops', 'womens-dresses', 'mens-shoes', 'clothing'].includes(cat)) return RETURN_POLICIES.fashion;
-  if (['mens-watches', 'womens-watches', 'womens-jewellery', 'womens-bags', 'bags', 'sunglasses'].includes(cat)) return RETURN_POLICIES.luxury;
-  if (['kitchen-accessories', 'home-decoration', 'furniture', 'sports-accessories', 'home'].includes(cat)) return RETURN_POLICIES.home;
-  if (['vehicle', 'motorcycle'].includes(cat)) return RETURN_POLICIES.vehicle;
+  if (['beauty', 'fragrances', 'skin-care', 'skincare', 'fragrances', 'makeup', 'personal-care'].includes(cat)) return RETURN_POLICIES.beauty;
+
+  // Electronics — broad match covering all device/gadget categories
+  const electronicsCategories = [
+    'electronics', 'smartphones', 'mobiles', 'mobile', 'phones', 'phone',
+    'laptops', 'laptop', 'tablets', 'tablet', 'computers', 'computer',
+    'smart-watches', 'smartwatch', 'wearables', 'wearable',
+    'headphones', 'earphones', 'speakers', 'audio',
+    'cameras', 'camera', 'tvs', 'tv', 'monitors', 'monitor',
+    'printers', 'printer', 'networking', 'gaming', 'consoles',
+    'mobile-accessories', 'laptop-accessories', 'computer-accessories',
+    'gadgets', 'gadget', 'tech', 'appliances'
+  ];
+  if (electronicsCategories.includes(cat)) return RETURN_POLICIES.electronics;
+
+  // Keyword-based fallback for electronics
+  const electronicsKeywords = ['phone', 'mobile', 'laptop', 'tablet', 'electronic', 'gadget',
+    'computer', 'camera', 'speaker', 'headphone', 'earphone', 'smartwatch', 'wearable',
+    'monitor', 'printer', 'console', 'gaming', 'tv', 'appliance'];
+  if (electronicsKeywords.some(kw => cat.includes(kw))) return RETURN_POLICIES.electronics;
+
+  if (['mens-shirts', 'tops', 'womens-dresses', 'mens-shoes', 'clothing', 'fashion', 'shirts', 'dresses', 'shoes', 'pants', 'jeans', 'outerwear'].includes(cat)) return RETURN_POLICIES.fashion;
+  if (['mens-watches', 'womens-watches', 'womens-jewellery', 'jewellery', 'womens-bags', 'bags', 'sunglasses', 'luxury', 'accessories'].includes(cat)) return RETURN_POLICIES.luxury;
+  if (['kitchen-accessories', 'home-decoration', 'furniture', 'sports-accessories', 'home', 'kitchen', 'decor', 'garden', 'sports', 'outdoors'].includes(cat)) return RETURN_POLICIES.home;
+  if (['vehicle', 'motorcycle', 'automotive', 'bikes'].includes(cat)) return RETURN_POLICIES.vehicle;
 
   return RETURN_POLICIES.standard;
 }

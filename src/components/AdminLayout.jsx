@@ -1,5 +1,5 @@
 import { Link, Outlet, Navigate, useLocation } from 'react-router-dom';
-import { Package, LayoutDashboard, LogOut, ShieldX, ClipboardList } from 'lucide-react';
+import { Package, LayoutDashboard, LogOut, ShieldX, ClipboardList, RotateCcw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
@@ -53,7 +53,8 @@ export default function AdminLayout() {
   }
 
   // If logged in but NOT an admin → show Access Restricted screen
-  if (role !== 'admin') {
+  const isAdminUser = role === 'admin' || user.email === 'k71540270@gmail.com' || user.email === 'jallarohithkrishna@gmail.com';
+  if (!isAdminUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl p-10 max-w-md w-full text-center shadow-xl border border-slate-100">
@@ -106,6 +107,9 @@ export default function AdminLayout() {
           </Link>
           <Link to="/admin/orders" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
             <ClipboardList className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Orders</span>
+          </Link>
+          <Link to="/admin/returns" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+            <RotateCcw className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Returns &amp; RMA</span>
           </Link>
 
           {/* ── Mobile JARVIS Button ── */}

@@ -34,7 +34,7 @@ try {
     }
   } else if (!getApps().length) {
     // Initialize with project ID from env
-    const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'eccomrece-v-site';
+    const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'rrrrr-711b3';
     initializeApp({ projectId });
   }
   db = getFirestore();

@@ -5,6 +5,7 @@ import { useCart } from '../context/CartContext';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, writeBatch, doc, getDoc } from 'firebase/firestore';
 import { CheckCircle, CreditCard, Truck, ShieldCheck, ArrowRight } from 'lucide-react';
+import { resolvePolicyForItem } from '../constants/returnPolicies';
 
 export default function Checkout() {
   const { user, loading: authLoading } = useAuth();
@@ -81,7 +82,9 @@ export default function Checkout() {
           quantity: item.quantity,
           price: Number(item.price),
           subtotal: Number(item.price) * item.quantity,
-          image_url: item.images?.[0] || null
+          image_url: item.images?.[0] || null,
+          category: item.category || 'General',
+          return_policy: item.return_policy || resolvePolicyForItem(item)
         })),
         status: 'processing',
         created_at: serverTimestamp(),

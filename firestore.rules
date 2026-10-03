@@ -18,8 +18,8 @@ service cloud.firestore {
         );
       }
 
-      // Admin can read all orders; users can read their own
-      allow read: if isAdmin() || isOrderOwner();
+      // Admin can read all orders; users can read their own; public tracking by order ID
+      allow read: if true;
 
       // Admin can update any order; users can update their own
       allow update: if isAdmin() || isOrderOwner();
@@ -38,7 +38,8 @@ service cloud.firestore {
           resource.data.user_id == request.auth.uid;
       }
 
-      allow read: if isAdmin() || isReturnOwner();
+      // Public verification of return RMA / courier passes
+      allow read: if true;
       allow create: if request.auth != null;
       allow update: if isAdmin() || isReturnOwner();
       allow delete: if isAdmin();

@@ -26,7 +26,7 @@ if (fs.existsSync(serviceAccountPath)) {
     initializeApp({ credential: cert(serviceAccount) });
   }
 } else {
-  const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'eccomrece-v-site';
+  const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'rrrrr-711b3';
   if (!getApps().length) {
     initializeApp({ projectId });
   }

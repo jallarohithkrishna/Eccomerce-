@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ShoppingCart, User, Search, Menu, LogOut, Package, X, ArrowLeft, LayoutDashboard } from 'lucide-react';
+import { ShoppingCart, User, Search, Menu, LogOut, Package, X, ArrowLeft, LayoutDashboard, RotateCcw } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -69,6 +69,8 @@ export default function Navbar() {
     setIsMobileMenuOpen(false);
   };
 
+  const isAdminUser = user?.user_metadata?.role === 'admin' || user?.email === 'k71540270@gmail.com' || user?.email === 'jallarohithkrishna@gmail.com';
+
   return (
     <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -126,13 +128,16 @@ export default function Navbar() {
                 <span className="text-sm font-medium text-slate-700">
                   Hi, {user.user_metadata?.full_name?.split(' ')[0] || 'User'}
                 </span>
-                {user.user_metadata?.role === 'admin' && (
+                {isAdminUser && (
                   <Link to="/admin" className="text-slate-600 hover:text-primary-600 transition-colors" title="Admin Dashboard">
                     <LayoutDashboard className="h-5 w-5" />
                   </Link>
                 )}
                 <Link to="/orders" className="text-slate-600 hover:text-primary-600 transition-colors" title="My Orders">
                   <Package className="h-5 w-5" />
+                </Link>
+                <Link to="/returns" className="text-slate-600 hover:text-primary-600 transition-colors" title="Returns & Exchanges">
+                  <RotateCcw className="h-5 w-5" />
                 </Link>
                 <button 
                   onClick={() => signOut()}
@@ -201,7 +206,7 @@ export default function Navbar() {
                         {user.user_metadata?.full_name || 'User'}
                       </span>
                     </div>
-                    {user.user_metadata?.role === 'admin' && (
+                    {isAdminUser && (
                       <Link 
                         to="/admin" 
                         onClick={closeMobileMenu}
@@ -218,6 +223,14 @@ export default function Navbar() {
                     >
                       <Package className="h-5 w-5 mr-4 text-slate-400" />
                       My Orders
+                    </Link>
+                    <Link 
+                      to="/returns" 
+                      onClick={closeMobileMenu}
+                      className="flex items-center px-4 py-3 text-slate-700 hover:text-primary-700 hover:bg-slate-50 rounded-xl transition-all font-medium"
+                    >
+                      <RotateCcw className="h-5 w-5 mr-4 text-slate-400" />
+                      Returns &amp; Exchanges
                     </Link>
                     <button 
                       onClick={() => {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { Package, Clock, CheckCircle, X, MapPin, Search, RotateCcw } from 'lucide-react';
 
 export default function AdminOrders() {
@@ -107,8 +107,28 @@ export default function AdminOrders() {
       await updateDoc(orderRef, {
         returns: updatedReturns,
         status: newOrderStatus,
-        return_status: action === 'refund' ? 'refunded' : 'inspected'
+        return_status: action === 'refund' ? 'refunded' : 'inspected',
+        updated_at: serverTimestamp()
       });
+
+      // Also sync to returns collection for live QR page
+      try {
+        const retQ = query(collection(db, 'returns'), where('rma_number', '==', rmaNumber));
+        const retSnap = await getDocs(retQ);
+        if (!retSnap.empty) {
+          const matchedReturn = updatedReturns.find(r => r.rma_number === rmaNumber);
+          if (matchedReturn) {
+            await updateDoc(doc(db, 'returns', retSnap.docs[0].id), {
+              status: matchedReturn.status,
+              status_label: matchedReturn.status_label,
+              timeline: matchedReturn.timeline,
+              updated_at: serverTimestamp()
+            });
+          }
+        }
+      } catch (syncErr) {
+        console.warn('Sync to returns collection skipped in admin:', syncErr.message);
+      }
 
       if (selectedOrder && selectedOrder.id === orderId) {
         setSelectedOrder({
@@ -262,8 +282,6 @@ export default function AdminOrders() {
                         <option value="processing">Processing</option>
                         <option value="shipped">Shipped</option>
                         <option value="delivered">Delivered</option>
-                        <option value="returned">Warehouse Received</option>
-                        <option value="refunded">Amount Credited / Refunded</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
                       <button

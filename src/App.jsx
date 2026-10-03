@@ -16,11 +16,14 @@ const Checkout = lazy(() => import('./pages/Checkout'));
 const Orders = lazy(() => import('./pages/Orders'));
 const ProductDetails = lazy(() => import('./pages/ProductDetails'));
 const Category = lazy(() => import('./pages/Category'));
+const ReturnVerification = lazy(() => import('./pages/ReturnVerification'));
+const Returns = lazy(() => import('./pages/Returns'));
 
 // Admin pages
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
 const AdminProducts = lazy(() => import('./pages/admin/Products'));
 const AdminOrders = lazy(() => import('./pages/admin/Orders'));
+const AdminReturns = lazy(() => import('./pages/admin/Returns'));
 
 const Loader = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -98,6 +101,24 @@ function App() {
                     </main>
                   </>
                 } />
+
+                <Route path="/returns" element={
+                  <>
+                    <Navbar />
+                    <main className="flex-grow">
+                      <Returns />
+                    </main>
+                  </>
+                } />
+
+                <Route path="/returns/verify" element={
+                  <>
+                    <Navbar />
+                    <main className="flex-grow">
+                      <ReturnVerification />
+                    </main>
+                  </>
+                } />
                 
                 <Route path="/product/:id" element={
                   <>
@@ -122,6 +143,7 @@ function App() {
                   <Route index element={<AdminDashboard />} />
                   <Route path="products" element={<AdminProducts />} />
                   <Route path="orders" element={<AdminOrders />} />
+                  <Route path="returns" element={<AdminReturns />} />
                 </Route>
               </Routes>
             </Suspense>

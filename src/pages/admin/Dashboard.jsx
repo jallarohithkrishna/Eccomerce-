@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { db } from '../../lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 
@@ -7,7 +8,9 @@ export default function Dashboard() {
     totalUsers: 0,
     totalOrders: 0,
     totalRevenue: 0,
-    lowStock: 0
+    lowStock: 0,
+    totalReturns: 0,
+    returnExceptions: 0
   });
   const [errors, setErrors] = useState({});
 
@@ -22,13 +25,31 @@ export default function Dashboard() {
 
     const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
       let revenue = 0;
+      let returnCount = 0;
+      let exceptionCount = 0;
+
       snap.forEach(doc => {
         const order = doc.data();
         if (order.status !== 'cancelled' && order.pricing?.total) {
           revenue += order.pricing.total;
         }
+        if (Array.isArray(order.returns)) {
+          returnCount += order.returns.length;
+          order.returns.forEach(r => {
+            if (r.is_exception || r.status === 'human_review' || r.status === 'HUMAN_REVIEW') {
+              exceptionCount++;
+            }
+          });
+        }
       });
-      setStats(prev => ({ ...prev, totalOrders: snap.size, totalRevenue: revenue }));
+
+      setStats(prev => ({ 
+        ...prev, 
+        totalOrders: snap.size, 
+        totalRevenue: revenue,
+        totalReturns: returnCount,
+        returnExceptions: exceptionCount
+      }));
       setErrors(prev => ({ ...prev, orders: null }));
     }, (err) => {
       console.error("Orders error:", err);
@@ -93,6 +114,20 @@ export default function Dashboard() {
             <p className="text-2xl font-bold text-slate-900">{stats.lowStock}</p>
           )}
         </div>
+        <Link to="/admin/returns" className="glass-panel p-6 rounded-xl hover:shadow-md transition-shadow group cursor-pointer block border border-primary-200 bg-gradient-to-br from-white to-primary-50/30">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-primary-700 mb-1">Total Returns &amp; RMA</h3>
+            {stats.returnExceptions > 0 && (
+              <span className="text-[10px] bg-amber-500 text-white font-bold px-2 py-0.5 rounded-full">
+                {stats.returnExceptions} Exceptions
+              </span>
+            )}
+          </div>
+          <p className="text-2xl font-bold text-slate-900 group-hover:text-primary-600 transition-colors">
+            {stats.totalReturns}
+          </p>
+          <p className="text-xs text-primary-600 mt-1 font-medium">Manage Returns &rarr;</p>
+        </Link>
       </div>
     </div>
   );

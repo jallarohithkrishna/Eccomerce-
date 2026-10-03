@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { Package, Clock, CheckCircle, RotateCcw, Truck, ShieldCheck, ChevronRight, Sparkles } from 'lucide-react';
+import { Package, Clock, CheckCircle, RotateCcw, Truck, ShieldCheck, ChevronRight, Sparkles, QrCode } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ReturnModal from '../components/ReturnModal';
+import QRCodeDisplay from '../components/QRCodeDisplay';
+import { isElectronicsItem } from '../constants/returnPolicies';
 
 export default function Orders() {
   const { user, loading: authLoading } = useAuth();
@@ -15,6 +17,7 @@ export default function Orders() {
   // Return Modal State
   const [selectedOrderForReturn, setSelectedOrderForReturn] = useState(null);
   const [returnModalExistingReturn, setReturnModalExistingReturn] = useState(null);
+  const [returnModalInitialTab, setReturnModalInitialTab] = useState(null);
   const [simulating, setSimulating] = useState(null);
 
   useEffect(() => {
@@ -55,9 +58,11 @@ export default function Orders() {
     return () => unsubscribe();
   }, [user]);
 
-  const openReturnModal = (order, existingReturn = null) => {
+  const openReturnModal = (order, existingReturn = null, forceInitiate = false) => {
     setSelectedOrderForReturn(order);
-    setReturnModalExistingReturn(existingReturn);
+    const targetReturn = existingReturn || (order?.returns && order.returns.length > 0 ? order.returns[order.returns.length - 1] : null);
+    setReturnModalExistingReturn(targetReturn);
+    setReturnModalInitialTab(forceInitiate ? 'initiate' : (targetReturn ? 'track' : 'initiate'));
   };
 
   const simulateDelivery = async (orderId) => {
@@ -104,6 +109,33 @@ export default function Orders() {
           </button>
         </div>
 
+        {/* AI Return Assistant Banner */}
+        <div className="mb-8 bg-gradient-to-r from-primary-600 via-indigo-600 to-violet-700 p-5 rounded-2xl text-white shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 shrink-0">
+              <Sparkles className="w-6 h-6 text-yellow-300 animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold flex items-center gap-2">
+                Need to return or exchange an item?
+                <span className="text-[10px] bg-emerald-400 text-slate-900 font-extrabold px-2 py-0.5 rounded-full">
+                  NEW AI AGENT
+                </span>
+              </h2>
+              <p className="text-xs text-indigo-100 mt-0.5">
+                Chat with our Autonomous AI Return Agent for instant policy checks, RMA approval &amp; reverse courier pickup.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate('/returns')}
+            className="w-full sm:w-auto px-4 py-2.5 bg-white text-primary-700 hover:bg-primary-50 rounded-xl text-xs font-extrabold shadow-sm transition-all whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <span>AI Return Assistant</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
         {orders.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-12 text-center">
             <Package className="mx-auto h-16 w-16 text-slate-300 mb-4" />
@@ -118,6 +150,7 @@ export default function Orders() {
               const latestReturn = hasReturns ? order.returns[order.returns.length - 1] : null;
               const isDelivered = order.status === 'delivered';
               const allItemsReturned = order.items?.length > 0 && order.returns?.length >= order.items.length;
+              const allItemsElectronics = order.items?.length > 0 && order.items.every(item => isElectronicsItem(item));
 
               return (
                 <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -139,11 +172,15 @@ export default function Orders() {
                       <p className="font-bold text-primary-600">₹{order.pricing?.total?.toFixed(2)}</p>
                     </div>
                     <div>
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                      <span 
+                        onClick={() => {
+                          if (hasReturns) openReturnModal(order, latestReturn);
+                        }}
+                        className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
                         order.status === 'processing' ? 'bg-blue-50 text-blue-700' :
                         order.status === 'shipped' ? 'bg-indigo-50 text-indigo-700' :
                         order.status === 'delivered' ? 'bg-green-50 text-green-700' :
-                        (order.status === 'returned' || order.status === 'refunded' || hasReturns) ? 'bg-purple-50 text-purple-700' :
+                        (order.status === 'returned' || order.status === 'refunded' || hasReturns) ? 'bg-purple-50 text-purple-700 cursor-pointer hover:bg-purple-100 transition-colors' :
                         'bg-slate-100 text-slate-700'
                       }`}>
                         {order.status === 'processing' && <Clock className="w-4 h-4 mr-1.5" />}
@@ -178,13 +215,28 @@ export default function Orders() {
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => openReturnModal(order, latestReturn)}
-                        className="btn bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-bold py-2 px-4 shadow-sm flex items-center gap-1.5 self-start sm:self-auto"
-                      >
-                        <span>Track Return & QR</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <div 
+                          onClick={() => openReturnModal(order, latestReturn)}
+                          className="bg-white p-1 rounded-xl border border-purple-200 shadow-xs cursor-pointer hover:scale-105 transition-transform hidden sm:flex items-center justify-center"
+                          title="Click to view full Courier QR Pass"
+                        >
+                          <QRCodeDisplay
+                            value={`${(typeof window !== 'undefined' && window.location.origin.includes('http')) ? window.location.origin : 'https://rrrrr-711b3.web.app'}/returns/verify?rma=${encodeURIComponent(latestReturn.rma_number || '')}&order=${encodeURIComponent(order.order_number || '')}&item=${encodeURIComponent(latestReturn.item?.name || '')}&price=${encodeURIComponent(latestReturn.item?.price || 0)}&qty=${encodeURIComponent(latestReturn.item?.quantity || 1)}&refund=${encodeURIComponent(latestReturn.refund_amount || 0)}&track=${encodeURIComponent(latestReturn.pickup_details?.tracking_number || '')}&slot=${encodeURIComponent(latestReturn.pickup_details?.slot || '')}&carrier=${encodeURIComponent(latestReturn.pickup_details?.carrier || 'BlueDart')}&addr=${encodeURIComponent(latestReturn.pickup_details?.address || '')}&res=${encodeURIComponent(latestReturn.resolution_type || 'store_credit')}`}
+                            size={36}
+                            className="rounded-lg"
+                          />
+                        </div>
+
+                        <button
+                          onClick={() => openReturnModal(order, latestReturn)}
+                          className="btn bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-bold py-2 px-3.5 shadow-sm flex items-center gap-1.5"
+                        >
+                          <QrCode className="w-3.5 h-3.5 text-purple-600" />
+                          <span>Track Return &amp; QR</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   )}
                   
@@ -236,15 +288,35 @@ export default function Orders() {
                         </button>
                       )}
 
+                      {/* Return Details & Tracking Button for existing returns */}
+                      {hasReturns && (
+                        <button
+                          onClick={() => openReturnModal(order, latestReturn)}
+                          className="btn bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 text-xs font-bold py-2 px-3.5 flex items-center gap-1.5 shadow-xs"
+                        >
+                          <QrCode className="w-3.5 h-3.5 text-purple-700" />
+                          <span>Return Status &amp; QR</span>
+                        </button>
+                      )}
+
                       {/* Primary Return / Replace Button */}
                       {isDelivered && !allItemsReturned && (
-                        <button
-                          onClick={() => openReturnModal(order, null)}
-                          className="btn btn-secondary text-xs font-bold py-2 px-3.5 flex items-center gap-1.5 border border-slate-200 hover:border-primary-500 hover:text-primary-700 bg-white"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5 text-primary-600" />
-                          <span>{hasReturns ? 'Return Another Item' : 'Return or Replace Item'}</span>
-                        </button>
+                        <>
+                          <button
+                            onClick={() => navigate('/returns')}
+                            className="btn bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white text-xs font-bold py-2 px-3 flex items-center gap-1.5 shadow-xs"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                            <span>AI Return Agent</span>
+                          </button>
+                          <button
+                            onClick={() => openReturnModal(order, null, hasReturns ? true : false)}
+                            className="btn btn-secondary text-xs font-bold py-2 px-3 flex items-center gap-1.5 border border-slate-200 hover:border-primary-500 hover:text-primary-700 bg-white"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-primary-600" />
+                            <span>{hasReturns ? 'Manual Form' : 'Return Form'}</span>
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -262,9 +334,11 @@ export default function Orders() {
         onClose={() => {
           setSelectedOrderForReturn(null);
           setReturnModalExistingReturn(null);
+          setReturnModalInitialTab(null);
         }}
         order={orders.find(o => o.id === selectedOrderForReturn?.id) || selectedOrderForReturn}
         existingReturn={returnModalExistingReturn}
+        initialTab={returnModalInitialTab}
       />
     </div>
   );
