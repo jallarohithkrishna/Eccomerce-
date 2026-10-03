@@ -11,6 +11,7 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
   const [activeTab, setActiveTab] = useState(existingReturn ? 'track' : 'initiate');
   const [submitting, setSubmitting] = useState(false);
   const [successRma, setSuccessRma] = useState(null);
+  const [advancingStage, setAdvancingStage] = useState(false);
 
   // Form State for Return Initiation
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
@@ -22,8 +23,6 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
   const [photoProof, setPhotoProof] = useState('');
 
   if (!isOpen || !order) return null;
-
-  const [advancingStage, setAdvancingStage] = useState(false);
 
   const targetRma = successRma?.rma_number || existingReturn?.rma_number;
   const matchingOrderReturn = order.returns?.find(r => r.rma_number === targetRma) || (order.returns && order.returns.length > 0 ? order.returns[0] : null);
