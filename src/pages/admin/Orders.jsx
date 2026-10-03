@@ -245,12 +245,12 @@ export default function AdminOrders() {
                         </div>
                       )}
                     </td>
-                    <td className="p-4 text-sm">
+                    <td className="p-4 text-sm flex items-center gap-2">
                       <select 
                         value={order.status || 'pending'}
                         onChange={(e) => handleStatusChange(order.id, e.target.value)}
                         disabled={updating === order.id}
-                        className="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block w-full p-2"
+                        className="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-primary-500 focus:border-primary-500 block p-2"
                       >
                         <option value="pending">Pending</option>
                         <option value="processing">Processing</option>
@@ -258,6 +258,12 @@ export default function AdminOrders() {
                         <option value="delivered">Delivered</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
+                      <button
+                        onClick={() => setSelectedOrder(order)}
+                        className="bg-primary-50 hover:bg-primary-100 text-primary-700 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap border border-primary-200 transition-colors"
+                      >
+                        View Details
+                      </button>
                     </td>
                   </tr>
                 ))
