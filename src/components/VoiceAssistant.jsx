@@ -5,6 +5,7 @@ import { db } from '../lib/firebase';
 import {
   collection, getDocs, deleteDoc, doc, updateDoc, Timestamp,
 } from 'firebase/firestore';
+import { ensureProductsLoaded, getCachedProducts } from '../lib/productCache';
 import { Mic, MicOff, X, Loader2 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { SpeechRecognition as CapSpeechRecognition } from '@capacitor-community/speech-recognition';
@@ -799,8 +800,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           addLog('jarvis', m); speak(m); break;
         }
         case 'delete_product': {
-          const delSnap = await getDocs(collection(db,'products'));
-          const delList = delSnap.docs.map(d=>({id:d.id,...d.data()}));
+          const delList = await ensureProductsLoaded();
           const delMatch = bestMatch(cmd.productName, delList);
           if (!delMatch) {
             const names = delList.slice(0, 8).map(p=>p.name).join(', ') || 'none';
@@ -816,8 +816,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           break;
         }
         case 'set_out_of_stock': {
-          const stSnap = await getDocs(collection(db,'products'));
-          const stList = stSnap.docs.map(d=>({id:d.id,...d.data()}));
+          const stList = await ensureProductsLoaded();
           const stMatch = bestMatch(cmd.productName, stList);
           if (!stMatch) {
             const names = stList.slice(0, 8).map(p=>p.name).join(', ') || 'none';
@@ -833,8 +832,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           break;
         }
         case 'set_exact_stock': {
-          const stSnap = await getDocs(collection(db,'products'));
-          const stList = stSnap.docs.map(d=>({id:d.id,...d.data()}));
+          const stList = await ensureProductsLoaded();
           const stMatch = bestMatch(cmd.productName, stList);
           if (!stMatch) {
             const names = stList.slice(0, 8).map(p=>p.name).join(', ') || 'none';
@@ -850,8 +848,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           break;
         }
         case 'add_stock': {
-          const stSnap = await getDocs(collection(db,'products'));
-          const stList = stSnap.docs.map(d=>({id:d.id,...d.data()}));
+          const stList = await ensureProductsLoaded();
           const stMatch = bestMatch(cmd.productName, stList);
           if (!stMatch) {
             const names = stList.slice(0, 8).map(p=>p.name).join(', ') || 'none';
@@ -928,8 +925,8 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           addLog('jarvis',m); speak(m); break;
         }
         case 'product_count': {
-          const snap = await getDocs(collection(db,'products'));
-          const m = `You have ${snap.size} product${snap.size!==1?'s':''} in your catalog, RK Boss.`;
+          const pList = await ensureProductsLoaded();
+          const m = `You have ${pList.length} product${pList.length!==1?'s':''} in your catalog, RK Boss.`;
           addLog('jarvis',m); speak(m); break;
         }
         case 'help': {

@@ -1,82 +1,96 @@
 /**
  * Module-level in-memory product cache.
- * Lives in JS module scope — survives React re-renders and route changes.
- * Implements stale-while-revalidate: instant reads + background refresh.
+ * Keeps a single shared real-time Firestore products listener for the whole app.
+ * Replaces redundant whole-collection reads across pages and assistants.
  */
 import { db } from './firebase';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 // ─── Cache State ──────────────────────────────────────────────────────────────
 let _products = [];
-let _productMap = {};   // id → product  (O(1) lookup)
+let _productMap = {};   // id → product (O(1) lookup)
 let _lastFetched = null;
 let _unsubscribe = null;
 let _listeners = new Set();
 let _initialized = false;
+let _initPromise = null;
 
 const STALE_MS = 5 * 60 * 1000; // 5 minutes
 
-// ─── Notify all subscribers ───────────────────────────────────────────────────
 function _notify() {
-  _listeners.forEach(fn => fn(_products));
-}
-
-// ─── Start the real-time listener (called once) ───────────────────────────────
-function _startListener() {
-  if (_unsubscribe) return; // already listening
-  const q = query(collection(db, 'products'), orderBy('created_at', 'desc'));
-  _unsubscribe = onSnapshot(q, (snap) => {
-    _products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    _productMap = Object.fromEntries(_products.map(p => [p.id, p]));
-    _lastFetched = Date.now();
-    _initialized = true;
-    _notify();
+  _listeners.forEach(fn => {
+    try {
+      fn(_products);
+    } catch (e) {
+      console.error('productCache subscriber error:', e);
+    }
   });
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+function _startListener() {
+  if (_unsubscribe && _initPromise) return _initPromise;
+
+  const q = query(collection(db, 'products'), orderBy('created_at', 'desc'));
+  
+  _initPromise = new Promise((resolve) => {
+    _unsubscribe = onSnapshot(q, (snap) => {
+      _products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      _productMap = Object.fromEntries(_products.map(p => [p.id, p]));
+      _lastFetched = Date.now();
+      _initialized = true;
+      _notify();
+      resolve(_products);
+    }, (err) => {
+      console.warn('productCache listener warning:', err.message);
+      resolve(_products);
+    });
+  });
+
+  return _initPromise;
+}
+
+/**
+ * Ensure products are loaded and listener is active.
+ * @returns {Promise<Array>}
+ */
+export async function ensureProductsLoaded() {
+  if (_initialized && _products.length > 0) return _products;
+  return await _startListener();
+}
 
 /**
  * Subscribe to product list changes.
- * Immediately calls `callback` with cached data (may be empty on first call),
- * then calls it again whenever Firestore pushes an update.
+ * Immediately invokes callback with current cached products,
+ * then updates whenever Firestore pushes a change.
+ * Keeps the single shared listener active for the whole app session.
  *
  * @param {(products: Array) => void} callback
- * @returns {() => void}  unsubscribe function
+ * @returns {() => void} unsubscribe callback
  */
 export function subscribeToProducts(callback) {
   _listeners.add(callback);
-
-  // Start the real-time listener on first subscriber
   _startListener();
 
-  // Immediately emit whatever we already have (instant render)
-  callback(_products);
+  if (_initialized || _products.length > 0) {
+    callback(_products);
+  }
 
   return () => {
     _listeners.delete(callback);
-    // Stop the Firestore listener only when nobody is subscribed
-    if (_listeners.size === 0 && _unsubscribe) {
-      _unsubscribe();
-      _unsubscribe = null;
-    }
   };
 }
 
 /**
- * Get the current cached product list synchronously.
- * Returns [] if cache hasn't been populated yet.
+ * Get current cached products synchronously.
+ * Automatically starts the shared listener in background if not yet started.
  */
 export function getCachedProducts() {
+  _startListener();
   return _products;
 }
 
 /**
  * Get a single product by ID instantly from cache.
- * Returns `null` if not in cache yet.
- *
- * @param {string} id
- * @returns {object|null}
  */
 export function getProductById(id) {
   return _productMap[id] ?? null;

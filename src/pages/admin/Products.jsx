@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { Plus, Pencil, Trash2, Image as ImageIcon, ShieldCheck } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 import { resolvePolicyForCategory } from '../../constants/returnPolicies';
+import { subscribeToProducts } from '../../lib/productCache';
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([]);
@@ -36,13 +37,8 @@ export default function AdminProducts() {
   const [imageUrl, setImageUrl] = useState('');
 
   useEffect(() => {
-    // Subscribe to real-time changes (also handles initial load)
-    const q = query(collection(db, 'products'), orderBy('created_at', 'desc'));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const productsList = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+    // Subscribe to shared real-time product cache
+    const unsubscribe = subscribeToProducts((productsList) => {
       setProducts(productsList);
       setLoading(false);
     });

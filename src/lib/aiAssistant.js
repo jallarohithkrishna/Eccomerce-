@@ -1,5 +1,4 @@
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from './firebase';
+import { getCachedProducts, ensureProductsLoaded } from './productCache';
 
 const SERVER_URL = import.meta.env.VITE_AI_SERVER_URL || 'http://localhost:5000';
 
@@ -70,14 +69,16 @@ export function searchClientProducts(products, query) {
  * Ask AI Assistant via RAG backend server or client-side fallback
  */
 export async function askAiAssistant(userMessage, localCatalog = []) {
-  // 1. First fetch fresh real products from Firestore if not provided
+  // 1. First fetch fresh real products from cache if not provided
   let catalog = localCatalog;
   if (!catalog || catalog.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'products'));
-      catalog = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (err) {
-      console.warn('Could not read products from client Firestore:', err);
+    catalog = getCachedProducts();
+    if (!catalog || catalog.length === 0) {
+      try {
+        catalog = await ensureProductsLoaded();
+      } catch (err) {
+        console.warn('Could not read products from cache:', err);
+      }
     }
   }
 

@@ -21,6 +21,7 @@ import { db } from '../lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { askAiAssistant } from '../lib/aiAssistant';
 import ImageWithFallback from './ImageWithFallback';
+import { subscribeToProducts } from '../lib/productCache';
 
 const QUICK_PROMPTS = [
   "Show me products for basketball",
@@ -51,16 +52,10 @@ export default function AiShoppingAssistant() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Sync real-time products collection from Firestore to guarantee 100% real data
+  // Read products from shared cache listener
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const items = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+    const unsubscribe = subscribeToProducts((items) => {
       setProducts(items);
-    }, (error) => {
-      console.error("Error listening to products in AI Assistant:", error);
     });
 
     return () => unsubscribe();
