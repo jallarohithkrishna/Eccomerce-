@@ -6,7 +6,7 @@ service cloud.firestore {
     // Admin is identified by email — grants full access to all collections
     function isAdmin() {
       return request.auth != null &&
-        request.auth.token.email == 'k71540270@gmail.com';
+        (request.auth.token.email == 'k71540270@gmail.com' || request.auth.token.email == 'jallarohithkrishna@gmail.com');
     }
 
     // ── ORDERS ──────────────────────────────────────────────────────────────
