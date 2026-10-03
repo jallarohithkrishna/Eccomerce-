@@ -22,3 +22,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets
+.env
+.env.*
+!.env.example
+serviceAccountKey.json
+.firebase
+android/.gradle
+android/build
+android/app/build
