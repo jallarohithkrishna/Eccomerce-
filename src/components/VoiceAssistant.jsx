@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/firebase';
 import {
-  collection, getDocs, deleteDoc, doc, updateDoc, Timestamp,
+  collection, getDocs, deleteDoc, doc, updateDoc, Timestamp, query, where, orderBy, limit,
 } from 'firebase/firestore';
+import { useAuth } from '../context/AuthContext';
 import { ensureProductsLoaded, getCachedProducts } from '../lib/productCache';
 import { Mic, MicOff, X, Loader2 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
@@ -715,6 +716,7 @@ function LogEntry({ entry }) {
 // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Main Component ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
 export default function VoiceAssistant({ onAddProduct, openRef }) {
   const navigate = useNavigate();
+  const { isAdmin, isStaff } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -782,6 +784,21 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
       addLog('jarvis', 'Understood, RK Boss.');
       return;
     }
+
+    // Restrict administrative voice commands to admin/staff users
+    const ADMIN_COMMANDS = [
+      'navigate', 'add_product', 'delete_product', 'set_out_of_stock',
+      'set_exact_stock', 'add_stock', 'orders_last_week', 'orders_details',
+      'total_revenue', 'product_count'
+    ];
+
+    if (ADMIN_COMMANDS.includes(cmd.type) && !isAdmin && !isStaff) {
+      const m = "Administrator access is required for store management commands, RK Boss.";
+      addLog('error', m);
+      speak(m);
+      return;
+    }
+
     setIsProcessing(true);
     try {
       switch (cmd.type) {
@@ -866,40 +883,44 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
         }
         case 'orders_last_week': {
           const ago = Timestamp.fromDate(new Date(Date.now()-7*24*60*60*1000));
-          const snap = await getDocs(collection(db,'orders'));
-          const week = snap.docs.map(d=>d.data()).filter(o=>(o.created_at?.toMillis?.()??0)>=ago.toMillis());
+          const q = query(
+            collection(db, 'orders'),
+            where('created_at', '>=', ago),
+            orderBy('created_at', 'desc'),
+            limit(100)
+          );
+          const snap = await getDocs(q);
+          const week = snap.docs.map(d=>d.data());
           const rev = week.reduce((s,o)=>s+(o.pricing?.total||0),0);
-          const m = `Last 7 days: ${week.length} order${week.length!==1?'s':''}, revenue ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${rev.toFixed(2)}. Say "tell details of orders" for customer details.`;
+          const m = `Last 7 days: ${week.length} order${week.length!==1?'s':''}, revenue ₹${rev.toFixed(2)}. Say "tell details of orders" for customer details.`;
           addLog('jarvis', m);
-          speak(`Last 7 days: ${week.length} order${week.length!==1?'s':''}, revenue ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${Math.round(rev)}, RK Boss.`);
+          speak(`Last 7 days: ${week.length} order${week.length!==1?'s':''}, revenue ₹${Math.round(rev)}, RK Boss.`);
           break;
         }
         case 'orders_details': {
-          const snap = await getDocs(collection(db,'orders'));
-          let allOrders = snap.docs.map(d=>({ id: d.id, ...d.data() }));
-          
-          allOrders.sort((a, b) => {
-            const timeA = a.created_at?.toMillis ? a.created_at.toMillis() : 0;
-            const timeB = b.created_at?.toMillis ? b.created_at.toMillis() : 0;
-            return timeB - timeA;
-          });
+          const q = query(
+            collection(db, 'orders'),
+            orderBy('created_at', 'desc'),
+            limit(5)
+          );
+          const snap = await getDocs(q);
+          const displayOrders = snap.docs.map(d=>({ id: d.id, ...d.data() }));
 
-          const displayOrders = allOrders.slice(0, 5);
           if (displayOrders.length === 0) {
             const m = 'No orders found in the database.';
             addLog('jarvis', m); speak(m); break;
           }
 
           const rev = displayOrders.reduce((s,o)=>s+(o.pricing?.total||0),0);
-          const headerMsg = `ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¦ Showing details for latest ${displayOrders.length} orders (Total: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${rev.toFixed(2)}):`;
+          const headerMsg = `📦 Showing details for latest ${displayOrders.length} orders (Total: ₹${rev.toFixed(2)}):`;
           addLog('jarvis', headerMsg);
 
           displayOrders.forEach((o, index) => {
             const oid = o.order_number || o.id.slice(0, 8);
             const custName = o.customer?.full_name || o.customer?.name || 'Customer';
-            const email = o.customer?.email ? ` | ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â§ ${o.customer.email}` : '';
+            const email = o.customer?.email ? ` | ✉ ${o.customer.email}` : '';
             const itemsList = o.items?.map(i => `${i.quantity || 1}x ${i.name}`).join(', ') || 'Items';
-            const total = `ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${(o.pricing?.total || 0).toFixed(2)}`;
+            const total = `₹${(o.pricing?.total || 0).toFixed(2)}`;
             const status = (o.status || 'pending').toUpperCase();
 
             const line = `#${index + 1} [Order: ${oid}] - ${custName}${email} - ${itemsList} - ${total} - (${status})`;
@@ -912,16 +933,21 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
             const custName = o.customer?.full_name || o.customer?.name || 'a customer';
             const total = Math.round(o.pricing?.total || 0);
             const firstItem = o.items?.[0]?.name || 'items';
-            voiceText += `Order ${oid} from ${custName} for ${firstItem}, total ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${total}. `;
+            voiceText += `Order ${oid} from ${custName} for ${firstItem}, total ₹${total}. `;
           });
 
           speak(voiceText);
           break;
         }
         case 'total_revenue': {
-          const snap = await getDocs(collection(db,'orders'));
+          const q = query(
+            collection(db, 'orders'),
+            orderBy('created_at', 'desc'),
+            limit(100)
+          );
+          const snap = await getDocs(q);
           const total = snap.docs.reduce((s,d)=>s+(d.data().pricing?.total||0),0);
-          const m = `Total revenue: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${total.toFixed(2)}.`;
+          const m = `Recent total revenue: ₹${total.toFixed(2)}.`;
           addLog('jarvis',m); speak(m); break;
         }
         case 'product_count': {
