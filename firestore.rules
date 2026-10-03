@@ -2,9 +2,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ── ADMIN CHECK ─────────────────────────────────────────────────────────
+    // Admin is identified by email — grants full access to all collections
+    function isAdmin() {
+      return request.auth != null &&
+        request.auth.token.email == 'k71540270@gmail.com';
+    }
+
     // ── ORDERS ──────────────────────────────────────────────────────────────
     match /orders/{orderId} {
-      // Helper: check if current user owns this order
       function isOrderOwner() {
         return request.auth != null && (
           resource.data.customer.user_id == request.auth.uid ||
@@ -12,16 +18,17 @@ service cloud.firestore {
         );
       }
 
-      allow read: if isOrderOwner();
+      // Admin can read all orders; users can read their own
+      allow read: if isAdmin() || isOrderOwner();
 
-      // Owner can update their own order (e.g. submit return, mark delivered)
-      allow update: if isOrderOwner();
+      // Admin can update any order; users can update their own
+      allow update: if isAdmin() || isOrderOwner();
 
-      // Any authenticated user can create an order (during checkout)
+      // Any authenticated user can create (checkout)
       allow create: if request.auth != null;
 
-      // Allow delete by owner (optional, for cleanup)
-      allow delete: if isOrderOwner();
+      // Only admin can delete
+      allow delete: if isAdmin();
     }
 
     // ── RETURNS ─────────────────────────────────────────────────────────────
@@ -31,32 +38,33 @@ service cloud.firestore {
           resource.data.user_id == request.auth.uid;
       }
 
-      allow read: if isReturnOwner();
-
+      allow read: if isAdmin() || isReturnOwner();
       allow create: if request.auth != null;
-
-      allow update: if isReturnOwner();
+      allow update: if isAdmin() || isReturnOwner();
+      allow delete: if isAdmin();
     }
 
     // ── PRODUCTS ────────────────────────────────────────────────────────────
     match /products/{productId} {
+      // Everyone can read products
       allow read: if true;
-      allow write: if request.auth != null &&
-        request.auth.token.admin == true;
+      // Admin can add/update/delete products
+      allow write: if isAdmin();
     }
 
     // ── USERS ───────────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read, write: if request.auth != null &&
-        request.auth.uid == userId;
+      // Admin can read all users; users can only read/write their own
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
     }
 
     // ── CATEGORIES ──────────────────────────────────────────────────────────
     match /categories/{categoryId} {
       allow read: if true;
-      allow write: if request.auth != null &&
-        request.auth.token.admin == true;
+      allow write: if isAdmin();
     }
   }
 }
+
 
