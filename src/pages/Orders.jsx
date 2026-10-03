@@ -117,6 +117,7 @@ export default function Orders() {
               const hasReturns = order.returns && order.returns.length > 0;
               const latestReturn = hasReturns ? order.returns[order.returns.length - 1] : null;
               const isDelivered = order.status === 'delivered';
+              const allItemsReturned = order.items?.length > 0 && order.returns?.length >= order.items.length;
 
               return (
                 <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -234,7 +235,7 @@ export default function Orders() {
                       )}
 
                       {/* Primary Return / Replace Button */}
-                      {isDelivered && (
+                      {isDelivered && !allItemsReturned && (
                         <button
                           onClick={() => openReturnModal(order, null)}
                           className="btn btn-secondary text-xs font-bold py-2 px-3.5 flex items-center gap-1.5 border border-slate-200 hover:border-primary-500 hover:text-primary-700 bg-white"

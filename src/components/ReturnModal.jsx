@@ -17,7 +17,10 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
   const [advancingStage, setAdvancingStage] = useState(false);
 
   // Form State for Return Initiation
-  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
+  const [selectedItemIndex, setSelectedItemIndex] = useState(() => {
+    const firstAvailable = order?.items?.findIndex(item => !order?.returns?.some(r => r.item?.name === item.name));
+    return firstAvailable >= 0 ? firstAvailable : 0;
+  });
   const [returnQty, setReturnQty] = useState(1);
   const [reasonCode, setReasonCode] = useState('wrong_size');
   const [customerNotes, setCustomerNotes] = useState('');
@@ -226,24 +229,6 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
           </div>
 
           <div className="flex items-center gap-2">
-            {currentReturn && (
-              <div className="flex bg-slate-200/80 p-1 rounded-xl text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('track')}
-                  className={`px-3 py-1 rounded-lg transition-all ${activeTab === 'track' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                >
-                  Tracking
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('initiate')}
-                  className={`px-3 py-1 rounded-lg transition-all ${activeTab === 'initiate' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                >
-                  New Request
-                </button>
-              </div>
-            )}
             <button
               onClick={onClose}
               className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-full transition-colors ml-2"
@@ -423,6 +408,9 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
                 </label>
                 <div className="space-y-2">
                   {order.items?.map((item, idx) => {
+                    const isAlreadyReturned = order.returns?.some(r => r.item?.name === item.name);
+                    if (isAlreadyReturned) return null;
+                    
                     const isSelected = selectedItemIndex === idx;
                     const pol = item.return_policy || resolvePolicyForCategory(item.category);
                     return (
