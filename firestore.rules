@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── ORDERS ──────────────────────────────────────────────────────────────
+    // Allow authenticated users to read and update their own orders
+    match /orders/{orderId} {
+      allow read: if request.auth != null &&
+        resource.data.customer.user_id == request.auth.uid;
+
+      // Allow owner to update (e.g. add returns, mark delivered)
+      allow update: if request.auth != null &&
+        resource.data.customer.user_id == request.auth.uid;
+
+      // Only allow create from authenticated users (checkout)
+      allow create: if request.auth != null;
+    }
+
+    // ── RETURNS ─────────────────────────────────────────────────────────────
+    // Top-level returns collection (optional mirror)
+    match /returns/{returnId} {
+      allow read: if request.auth != null &&
+        resource.data.user_id == request.auth.uid;
+
+      allow create: if request.auth != null &&
+        request.resource.data.user_id == request.auth.uid;
+
+      allow update: if request.auth != null &&
+        resource.data.user_id == request.auth.uid;
+    }
+
+    // ── PRODUCTS ────────────────────────────────────────────────────────────
+    // Everyone can read products; only admins can write
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if request.auth != null &&
+        request.auth.token.admin == true;
+    }
+
+    // ── USERS ───────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read, write: if request.auth != null &&
+        request.auth.uid == userId;
+    }
+
+    // ── CATEGORIES ──────────────────────────────────────────────────────────
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if request.auth != null &&
+        request.auth.token.admin == true;
+    }
+  }
+}
