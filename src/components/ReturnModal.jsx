@@ -376,21 +376,8 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
                   <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60">
                     <div className="text-xs text-slate-300">
                       <p className="font-semibold text-white">Item awaiting warehouse intake scan</p>
-                      <p className="text-[11px] text-slate-400">Package in transit via BlueDart. Run receiving inspection.</p>
+                      <p className="text-[11px] text-slate-400">Package in transit via BlueDart.</p>
                     </div>
-                    <button
-                      type="button"
-                      disabled={advancingStage}
-                      onClick={() => handleAdvanceWarehouseStage('inspect')}
-                      className="w-full sm:w-auto btn bg-primary-600 hover:bg-primary-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md shadow-primary-900/40"
-                    >
-                      {advancingStage ? (
-                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent" />
-                      ) : (
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                      )}
-                      <span>Pass Warehouse Inspection</span>
-                    </button>
                   </div>
                 ) : !currentReturn.timeline?.[4]?.done ? (
                   <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 bg-emerald-950/40 p-3.5 rounded-xl border border-emerald-800/40">
@@ -400,22 +387,9 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
                         Inspection Passed! Item verified in original condition.
                       </p>
                       <p className="text-[11px] text-slate-300 mt-0.5">
-                        Ready to release {currentReturn.resolution_type?.replace('_', ' ')} of ₹{Number(currentReturn.refund_amount).toFixed(2)}.
+                        Processing {currentReturn.resolution_type?.replace('_', ' ')} of ₹{Number(currentReturn.refund_amount).toFixed(2)}.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      disabled={advancingStage}
-                      onClick={() => handleAdvanceWarehouseStage('refund')}
-                      className="w-full sm:w-auto btn bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md shadow-emerald-900/40"
-                    >
-                      {advancingStage ? (
-                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent" />
-                      ) : (
-                        <CreditCard className="w-3.5 h-3.5" />
-                      )}
-                      <span>Complete & Release Refund</span>
-                    </button>
                   </div>
                 ) : (
                   <div className="pt-2 bg-emerald-900/30 p-3 rounded-xl border border-emerald-700/40 flex items-center gap-2.5 text-xs text-emerald-300">
