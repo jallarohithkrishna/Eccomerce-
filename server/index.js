@@ -15,7 +15,25 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config(); // Load server/.env if present
 
 const app = express();
-app.use(cors({ origin: '*' }));
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://127.0.0.1:5173',
+  process.env.CLIENT_URL
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || origin.startsWith('http://localhost:')) {
+      return callback(null, true);
+    }
+    return callback(new Error('Blocked by CORS policy'));
+  },
+  credentials: true
+}));
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;

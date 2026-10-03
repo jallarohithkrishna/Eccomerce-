@@ -2,70 +2,145 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── ADMIN CHECK ─────────────────────────────────────────────────────────
-    // Admin is identified by email — grants full access to all collections
-    function isAdmin() {
-      return request.auth != null &&
-        (request.auth.token.email == 'k71540270@gmail.com' || request.auth.token.email == 'jallarohithkrishna@gmail.com');
+    // ── AUTHENTICATION & ROLE HELPERS ──────────────────────────────────────────
+    // All roles come exclusively from Firebase Auth custom claims (request.auth.token.role)
+    // No hardcoded emails or client-controlled role overrides permitted.
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // ── ORDERS ──────────────────────────────────────────────────────────────
+    function hasRole(role) {
+      return isSignedIn() && request.auth.token.get('role', '') == role;
+    }
+
+    function hasAnyRole(roles) {
+      return isSignedIn() && request.auth.token.get('role', '') in roles;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isStaff() {
+      return hasAnyRole(['admin', 'staff']);
+    }
+
+    function isWarehouse() {
+      return hasAnyRole(['admin', 'warehouse']);
+    }
+
+    function isAnyStaff() {
+      return hasAnyRole(['admin', 'staff', 'warehouse']);
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ── ORDERS ───────────────────────────────────────────────────────────────
+    // Only the order owner or staff can read orders.
+    // Client can create orders at checkout, but cannot mutate delivered_at or returns.
+    // Client cannot update orders directly (server handles state changes).
     match /orders/{orderId} {
       function isOrderOwner() {
-        return request.auth != null && (
+        return isSignedIn() && (
           resource.data.customer.user_id == request.auth.uid ||
           resource.data.user_id == request.auth.uid
         );
       }
 
-      // Admin can read all orders; users can read their own; public tracking by order ID
-      allow read: if true;
+      allow read: if isStaff() || isOrderOwner();
 
-      // Admin can update any order; users can update their own
-      allow update: if isAdmin() || isOrderOwner();
+      // Create allowed for authenticated users for their own order without delivered_at or returns tampering
+      allow create: if isSignedIn() && (
+        (request.resource.data.customer.user_id == request.auth.uid || request.resource.data.user_id == request.auth.uid) &&
+        !('delivered_at' in request.resource.data) &&
+        !('returns' in request.resource.data)
+      );
 
-      // Any authenticated user can create (checkout)
-      allow create: if request.auth != null;
-
-      // Only admin can delete
+      // Only staff can update orders via client (server uses Admin SDK which bypasses rules)
+      allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
-    // ── RETURNS ─────────────────────────────────────────────────────────────
+    // ── RETURNS & SUBCOLLECTIONS ─────────────────────────────────────────────
+    // Single source of truth for return requests.
+    // Customers can read only their own returns.
+    // All create/update operations are executed exclusively by the Server Orchestrator (Admin SDK).
     match /returns/{returnId} {
       function isReturnOwner() {
-        return request.auth != null &&
-          resource.data.user_id == request.auth.uid;
+        return isSignedIn() && (
+          resource.data.userId == request.auth.uid ||
+          resource.data.user_id == request.auth.uid ||
+          resource.data.customer.user_id == request.auth.uid
+        );
       }
 
-      // Public verification of return RMA / courier passes
-      allow read: if true;
-      allow create: if request.auth != null;
-      allow update: if isAdmin() || isReturnOwner();
+      // Read restricted to case owner or authorized staff/warehouse
+      allow read: if isStaff() || isWarehouse() || isReturnOwner();
+
+      // Client writes are completely disabled — only Server Admin SDK writes returns
+      allow create: if false;
+      allow update: if false;
       allow delete: if isAdmin();
+
+      // Append-only audit events subcollection: SHA-256 chained events written only by server
+      match /events/{seq} {
+        allow read: if isStaff() || isWarehouse() || isReturnOwner();
+        allow write: if false;
+      }
+
+      // Customer / Staff communication messages subcollection
+      match /messages/{messageId} {
+        allow read: if isStaff() || isReturnOwner();
+        allow write: if false;
+      }
+
+      // Evidence records subcollection
+      match /evidence/{evidenceId} {
+        allow read: if isStaff() || isWarehouse() || isReturnOwner();
+        allow write: if false;
+      }
     }
 
-    // ── PRODUCTS ────────────────────────────────────────────────────────────
+    // ── REFUNDS ──────────────────────────────────────────────────────────────
+    // Idempotent refund records written exclusively by the Server Orchestrator.
+    match /refunds/{refundId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    // ── PRODUCTS ─────────────────────────────────────────────────────────────
     match /products/{productId} {
-      // Everyone can read products
       allow read: if true;
-      // Admin can add/update/delete products
-      allow write: if isAdmin();
+      allow write: if isStaff();
     }
 
-    // ── USERS ───────────────────────────────────────────────────────────────
-    match /users/{userId} {
-      // Admin can read all users; users can only read/write their own
-      allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
-      allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
-    }
-
-    // ── CATEGORIES ──────────────────────────────────────────────────────────
+    // ── CATEGORIES ───────────────────────────────────────────────────────────
     match /categories/{categoryId} {
       allow read: if true;
+      allow write: if isStaff();
+    }
+
+    // ── POLICIES ─────────────────────────────────────────────────────────────
+    match /policies/{version} {
+      allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // ── USERS ────────────────────────────────────────────────────────────────
+    // Users can read/update their own profile, but CANNOT self-escalate their role field.
+    match /users/{userId} {
+      allow read: if isStaff() || isOwner(userId);
+      allow create: if isOwner(userId) && (
+        !('role' in request.resource.data) || request.resource.data.role == 'customer'
+      );
+      allow update: if isStaff() || (
+        isOwner(userId) && (
+          !('role' in request.resource.data) || request.resource.data.role == resource.data.role
+        )
+      );
+      allow delete: if isAdmin();
     }
   }
 }
-
-

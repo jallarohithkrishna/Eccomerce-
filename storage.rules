@@ -1,0 +1,41 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasAnyRole(roles) {
+      return isSignedIn() && request.auth.token.get('role', '') in roles;
+    }
+
+    function isStaff() {
+      return hasAnyRole(['admin', 'staff', 'warehouse']);
+    }
+
+    // Evidence uploaded per user: /evidence/{userId}/{fileName}
+    // Only the authenticated user can upload up to 10MB images
+    match /evidence/{userId}/{fileName} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isStaff());
+      allow write: if isSignedIn() 
+        && request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Evidence uploaded per return case: /returns/{returnId}/{fileName}
+    match /returns/{returnId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Fallback default rule
+    match /{allPaths=**} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+  }
+}

@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Navbar() {
   const { cartCount, setIsCartOpen } = useCart();
-  const { user, signOut } = useAuth();
+  const { user, isAdmin, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -69,7 +69,7 @@ export default function Navbar() {
     setIsMobileMenuOpen(false);
   };
 
-  const isAdminUser = user?.user_metadata?.role === 'admin' || user?.email === 'k71540270@gmail.com' || user?.email === 'jallarohithkrishna@gmail.com';
+  const isAdminUser = isAdmin || isStaff;
 
   return (
     <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100">

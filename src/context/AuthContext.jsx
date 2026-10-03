@@ -20,7 +20,28 @@ const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [role, setRole] = useState('customer');
+  const [claims, setClaims] = useState({});
   const [loading, setLoading] = useState(true);
+
+  const refreshUserClaims = async (firebaseUser) => {
+    if (!firebaseUser) {
+      setRole('customer');
+      setClaims({});
+      return;
+    }
+    try {
+      const idTokenResult = await firebaseUser.getIdTokenResult(true);
+      const userRole = idTokenResult.claims.role || 'customer';
+      setClaims(idTokenResult.claims);
+      setRole(userRole);
+      return userRole;
+    } catch (err) {
+      console.error('Failed to get token claims:', err);
+      setRole('customer');
+      return 'customer';
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -28,17 +49,43 @@ export function AuthProvider({ children }) {
         // Only allow verified users (or Google users who are always verified)
         if (!currentUser.emailVerified) {
           setUser(null);
+          setRole('customer');
+          setClaims({});
           setLoading(false);
           return;
         }
+
+        // Fetch custom claims from token
+        let userRole = 'customer';
+        try {
+          const idTokenResult = await currentUser.getIdTokenResult();
+          userRole = idTokenResult.claims.role || 'customer';
+          setClaims(idTokenResult.claims);
+          setRole(userRole);
+        } catch (claimsErr) {
+          console.error('Error fetching auth claims:', claimsErr);
+        }
+
         // Fetch custom user data from Firestore if needed
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        let userData = { full_name: currentUser.displayName, role: userRole };
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          if (userDoc.exists()) {
+            userData = { ...userDoc.data(), role: userRole };
+          }
+        } catch {
+          // If rules restrict read, fallback to auth token info
+        }
+
         setUser({
           ...currentUser,
-          user_metadata: userDoc.exists() ? userDoc.data() : { full_name: currentUser.displayName }
+          role: userRole,
+          user_metadata: userData
         });
       } else {
         setUser(null);
+        setRole('customer');
+        setClaims({});
       }
       setLoading(false);
     });
@@ -57,7 +104,6 @@ export function AuthProvider({ children }) {
     await sendEmailVerification(newUser);
     
     // Sign out immediately — user must verify before accessing the app
-    // Do NOT create Firestore doc yet
     await firebaseSignOut(auth);
     
     return { pendingVerification: true, email };
@@ -71,7 +117,6 @@ export function AuthProvider({ children }) {
     await loggedInUser.reload();
     
     if (!loggedInUser.emailVerified) {
-      // Not verified — sign out and block
       await firebaseSignOut(auth);
       const error = new Error('Please verify your email before signing in. Check your inbox for the verification link.');
       error.code = 'auth/email-not-verified';
@@ -80,17 +125,21 @@ export function AuthProvider({ children }) {
     
     // Email is verified — ensure Firestore user doc exists
     const userDocRef = doc(db, 'users', loggedInUser.uid);
-    const userDocSnap = await getDoc(userDocRef);
-    
-    if (!userDocSnap.exists()) {
-      await setDoc(userDocRef, {
-        email: loggedInUser.email,
-        full_name: loggedInUser.displayName,
-        created_at: new Date().toISOString(),
-        role: 'customer'
-      });
+    try {
+      const userDocSnap = await getDoc(userDocRef);
+      if (!userDocSnap.exists()) {
+        await setDoc(userDocRef, {
+          email: loggedInUser.email,
+          full_name: loggedInUser.displayName,
+          created_at: new Date().toISOString(),
+          role: 'customer'
+        });
+      }
+    } catch {
+      // Ignored if rules prevent creation before verification
     }
     
+    await refreshUserClaims(loggedInUser);
     return loggedInUser;
   };
 
@@ -128,18 +177,22 @@ export function AuthProvider({ children }) {
     
     // Ensure user document exists in Firestore
     const userDocRef = doc(db, 'users', googleUser.uid);
-    const userDocSnap = await getDoc(userDocRef);
-    
-    if (!userDocSnap.exists()) {
-      await setDoc(userDocRef, {
-        email: googleUser.email,
-        full_name: googleUser.displayName,
-        avatar_url: googleUser.photoURL,
-        created_at: new Date().toISOString(),
-        role: 'customer'
-      });
+    try {
+      const userDocSnap = await getDoc(userDocRef);
+      if (!userDocSnap.exists()) {
+        await setDoc(userDocRef, {
+          email: googleUser.email,
+          full_name: googleUser.displayName,
+          avatar_url: googleUser.photoURL,
+          created_at: new Date().toISOString(),
+          role: 'customer'
+        });
+      }
+    } catch {
+      // Handled
     }
     
+    await refreshUserClaims(googleUser);
     return googleUser;
   };
 
@@ -152,10 +205,38 @@ export function AuthProvider({ children }) {
       }
     }
     await firebaseSignOut(auth);
+    setUser(null);
+    setRole('customer');
+    setClaims({});
   };
 
+  const getIdToken = async (forceRefresh = false) => {
+    if (!auth.currentUser) return null;
+    return await auth.currentUser.getIdToken(forceRefresh);
+  };
+
+  const isAdmin = role === 'admin';
+  const isStaff = ['admin', 'staff'].includes(role);
+  const isWarehouse = ['admin', 'warehouse'].includes(role);
+
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signInWithGoogle, signOut, resendVerificationEmail, resetPassword }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      role, 
+      claims, 
+      isAdmin, 
+      isStaff, 
+      isWarehouse, 
+      loading, 
+      signUp, 
+      signIn, 
+      signInWithGoogle, 
+      signOut, 
+      resendVerificationEmail, 
+      resetPassword,
+      getIdToken,
+      refreshUserClaims
+    }}>
       {!loading && children}
     </AuthContext.Provider>
   );

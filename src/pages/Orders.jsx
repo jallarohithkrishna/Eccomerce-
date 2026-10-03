@@ -9,7 +9,7 @@ import QRCodeDisplay from '../components/QRCodeDisplay';
 import { isElectronicsItem } from '../constants/returnPolicies';
 
 export default function Orders() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, isAdmin, isStaff, loading: authLoading } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -276,15 +276,15 @@ export default function Orders() {
                     </div>
 
                     <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                      {/* Demo helper to simulate delivery if order is still processing/shipped */}
-                      {!isDelivered && (
+                      {/* Demo helper to simulate delivery if order is still processing/shipped (Admin/Staff only) */}
+                      {!isDelivered && (isAdmin || isStaff) && (
                         <button
                           onClick={() => simulateDelivery(order.id)}
                           disabled={simulating === order.id}
                           className="text-xs text-primary-600 hover:text-primary-800 font-semibold px-2.5 py-1.5 rounded-lg hover:bg-primary-50 transition-colors"
-                          title="Simulate Package Delivery for Return Testing"
+                          title="Simulate Package Delivery for Return Testing (Admin/Staff Only)"
                         >
-                          {simulating === order.id ? 'Marking...' : 'Mark Delivered (Test)'}
+                          {simulating === order.id ? 'Marking...' : 'Mark Delivered (Staff Demo)'}
                         </button>
                       )}
 

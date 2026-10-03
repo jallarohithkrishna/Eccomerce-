@@ -1,16 +1,13 @@
 import { Link, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { Package, LayoutDashboard, LogOut, ShieldX, ClipboardList, RotateCcw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useState, useEffect, useRef } from 'react';
-import { db } from '../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { useRef } from 'react';
 import VoiceAssistant from './VoiceAssistant';
 
 export default function AdminLayout() {
-  const { user, loading, signOut } = useAuth();
-  const [role, setRole] = useState(null);
-  const [roleLoading, setRoleLoading] = useState(true);
+  const { user, role, isAdmin, isStaff, loading, signOut } = useAuth();
   const location = useLocation();
+
   // Ref callback so VoiceAssistant can trigger the Add Product modal
   const addProductTriggerRef = useRef(null);
   const handleVoiceAddProduct = () => {
@@ -23,23 +20,8 @@ export default function AdminLayout() {
     if (openJarvisRef.current) openJarvisRef.current();
   };
 
-  useEffect(() => {
-    async function fetchRole() {
-      if (!user) { setRoleLoading(false); return; }
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        setRole(userDoc.exists() ? userDoc.data().role : 'customer');
-      } catch {
-        setRole('customer');
-      } finally {
-        setRoleLoading(false);
-      }
-    }
-    fetchRole();
-  }, [user]);
-
   // Show spinner while checking auth + role
-  if (loading || roleLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -52,9 +34,9 @@ export default function AdminLayout() {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  // If logged in but NOT an admin → show Access Restricted screen
-  const isAdminUser = role === 'admin' || user.email === 'k71540270@gmail.com' || user.email === 'jallarohithkrishna@gmail.com';
-  if (!isAdminUser) {
+  // If logged in but NOT an admin or authorized staff → show Access Restricted screen
+  const isAuthorized = isAdmin || isStaff;
+  if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl p-10 max-w-md w-full text-center shadow-xl border border-slate-100">
@@ -63,10 +45,10 @@ export default function AdminLayout() {
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Access Restricted</h1>
           <p className="text-slate-500 mb-2">
-            You don't have permission to view this page.
+            You don't have permission to view this page. Staff or administrator credentials required.
           </p>
           <p className="text-sm text-slate-400 mb-8">
-            Logged in as: <span className="font-medium text-slate-600">{user.email}</span>
+            Logged in as: <span className="font-medium text-slate-600">{user.email}</span> (Role: <span className="font-mono text-xs">{role}</span>)
           </p>
           <div className="flex flex-col gap-3">
             <Link to="/" className="btn btn-primary py-3">
@@ -84,7 +66,7 @@ export default function AdminLayout() {
     );
   }
 
-  // Admin user — show the full admin panel
+  // Authorized user — show the full admin panel
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row">
       {/* Sidebar */}
@@ -160,7 +142,7 @@ export default function AdminLayout() {
           </div>
         </nav>
 
-        {/* User info + Logout at the bottom (Hidden on mobile for space, or stacked) */}
+        {/* User info + Logout at the bottom */}
         <div className="p-4 border-t border-slate-100 hidden md:block">
           <div className="flex items-center gap-3 px-2 mb-3">
             <div className="h-9 w-9 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-sm">
