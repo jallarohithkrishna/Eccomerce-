@@ -2,12 +2,15 @@ import { useState, useId } from 'react';
 import { db } from '../lib/firebase';
 import { doc, updateDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { resolvePolicyForCategory } from '../constants/returnPolicies';
+import { useAuth } from '../context/AuthContext';
 import { 
   X, RotateCcw, ShieldCheck, AlertCircle, CheckCircle2, 
   Truck, ArrowRight, Check, Clock, QrCode, CreditCard, RefreshCw, Sparkles 
 } from 'lucide-react';
 
 export default function ReturnModal({ isOpen, onClose, order, existingReturn = null }) {
+  const { user } = useAuth();
+
   const [activeTab, setActiveTab] = useState(existingReturn ? 'track' : 'initiate');
   const [submitting, setSubmitting] = useState(false);
   const [successRma, setSuccessRma] = useState(null);
@@ -127,7 +130,7 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
         rma_number: rmaCode,
         order_id: order.id ?? null,
         order_number: order.order_number ?? null,
-        user_id: order.customer?.user_id ?? null,
+        user_id: order.customer?.user_id ?? user?.uid ?? null,
         status: returnStatus,
         status_label: statusLabel,
         approved_by: approvedBy,
