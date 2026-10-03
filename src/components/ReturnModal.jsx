@@ -5,7 +5,8 @@ import { resolvePolicyForCategory } from '../constants/returnPolicies';
 import { useAuth } from '../context/AuthContext';
 import { 
   X, RotateCcw, ShieldCheck, AlertCircle, CheckCircle2, 
-  Truck, ArrowRight, Check, Clock, QrCode, CreditCard, RefreshCw, Sparkles 
+  Truck, ArrowRight, Check, Clock, QrCode, CreditCard, RefreshCw, Sparkles,
+  Wrench, MapPin, Phone 
 } from 'lucide-react';
 
 export default function ReturnModal({ isOpen, onClose, order, existingReturn = null }) {
@@ -27,6 +28,14 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
   const [resolutionType, setResolutionType] = useState('store_credit');
   const [pickupSlot, setPickupSlot] = useState('tomorrow_morning');
   const [photoProof, setPhotoProof] = useState('');
+
+  // Service Center Form State
+  const [scName, setScName] = useState(order?.customer?.full_name || '');
+  const [scPhone, setScPhone] = useState('');
+  const [scImei, setScImei] = useState('');
+  const [scIssue, setScIssue] = useState('');
+  const [scCity, setScCity] = useState('');
+  const [scSubmitted, setScSubmitted] = useState(false);
 
   if (!isOpen || !order) return null;
 
@@ -97,6 +106,58 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
 
   const selectedItem = order.items?.[selectedItemIndex] || order.items?.[0] || {};
   const itemPolicy = selectedItem.return_policy || resolvePolicyForCategory(selectedItem.category);
+  const isServiceCenterItem = itemPolicy.policy_type === 'service_center_only';
+
+  const handleSubmitServiceCenter = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const scRequest = {
+        type: 'service_center_request',
+        order_id: order.id,
+        order_number: order.order_number,
+        user_id: order.customer?.user_id ?? user?.uid ?? null,
+        item: {
+          name: selectedItem.name,
+          price: selectedItem.price,
+          image_url: selectedItem.image_url || null,
+          category: selectedItem.category || null,
+          product_id: selectedItem.product_id || null
+        },
+        customer_name: scName,
+        phone: scPhone,
+        imei_serial: scImei,
+        issue_description: scIssue,
+        preferred_city: scCity,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      };
+
+      // Save to returns collection as service_center type
+      const updatedReturns = order.returns ? [...order.returns, scRequest] : [scRequest];
+      const orderRef = doc(db, 'orders', order.id);
+      await updateDoc(orderRef, {
+        returns: updatedReturns,
+        updated_at: serverTimestamp()
+      });
+
+      try {
+        await addDoc(collection(db, 'returns'), {
+          ...scRequest,
+          created_at_server: serverTimestamp()
+        });
+      } catch (err) {
+        console.warn('Service center request write to returns collection skipped:', err.message);
+      }
+
+      setScSubmitted(true);
+    } catch (err) {
+      console.error('Error submitting service center request:', err);
+      alert('Could not submit request: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   // Calculate order age
   const orderDate = order.created_at?.toDate ? order.created_at.toDate() : new Date();
@@ -460,7 +521,159 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
                 </div>
               </div>
 
-              {/* Step 2: Policy Eligibility Check Card */}
+              {/* Service Center Block for Electronics */}
+              {isServiceCenterItem ? (
+                <div className="space-y-5">
+                  {/* Alert Banner */}
+                  <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-orange-600" />
+                      <span className="font-bold text-orange-900 text-sm">Return Not Available for This Product</span>
+                    </div>
+                    <p className="text-xs text-orange-800">
+                      Electronics items are not eligible for return or refund. Only <strong>Service Center Replacement</strong> is available under warranty. Please visit your nearest authorized service center for inspection and replacement.
+                    </p>
+                    <div className="text-[11px] text-orange-700 flex items-center gap-3 pt-1 border-t border-orange-200">
+                      <span>Policy: <strong>Service Center Only</strong></span>
+                      <span>Warranty: <strong>{itemPolicy.window_days} days</strong></span>
+                      <span>Category: <strong className="capitalize">{selectedItem.category || 'Electronics'}</strong></span>
+                    </div>
+                  </div>
+
+                  {scSubmitted ? (
+                    /* Success State */
+                    <div className="text-center py-8 space-y-4">
+                      <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 text-green-600 rounded-full mx-auto">
+                        <CheckCircle2 className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-lg font-bold text-slate-900">Service Request Submitted!</h4>
+                      <p className="text-sm text-slate-600 max-w-sm mx-auto">
+                        Your service center replacement request has been submitted. Our team will review your request and contact you at <strong>{scPhone}</strong> within 24-48 hours.
+                      </p>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 max-w-sm mx-auto">
+                        <p><strong>Product:</strong> {selectedItem.name}</p>
+                        <p><strong>IMEI/Serial:</strong> {scImei || 'Not provided'}</p>
+                        <p><strong>Preferred City:</strong> {scCity || 'Not specified'}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="btn btn-primary py-2.5 px-6 text-sm font-bold"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  ) : (
+                    /* Service Center Request Form */
+                    <form onSubmit={handleSubmitServiceCenter} className="space-y-4">
+                      <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                        <Wrench className="w-4 h-4 text-orange-600" />
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Service Center Replacement Request</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Full Name *</label>
+                          <input
+                            type="text"
+                            value={scName}
+                            onChange={(e) => setScName(e.target.value)}
+                            required
+                            placeholder="Your full name"
+                            className="input text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Phone Number *</label>
+                          <input
+                            type="tel"
+                            value={scPhone}
+                            onChange={(e) => setScPhone(e.target.value)}
+                            required
+                            placeholder="+91 9876543210"
+                            className="input text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">IMEI / Serial Number</label>
+                        <input
+                          type="text"
+                          value={scImei}
+                          onChange={(e) => setScImei(e.target.value)}
+                          placeholder="e.g. 356938035643809"
+                          className="input text-sm"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">Found on the product box or in device Settings → About Phone</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Describe the Issue *</label>
+                        <textarea
+                          rows="3"
+                          value={scIssue}
+                          onChange={(e) => setScIssue(e.target.value)}
+                          required
+                          placeholder="e.g. Screen flickering after 2 days, battery draining very fast, speaker not working..."
+                          className="input text-sm h-auto py-2.5"
+                        ></textarea>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          <MapPin className="w-3.5 h-3.5 inline mr-1 text-orange-500" />
+                          Preferred Service Center City *
+                        </label>
+                        <input
+                          type="text"
+                          value={scCity}
+                          onChange={(e) => setScCity(e.target.value)}
+                          required
+                          placeholder="e.g. Hyderabad, Mumbai, Delhi"
+                          className="input text-sm"
+                        />
+                      </div>
+
+                      {/* Conditions checklist */}
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs space-y-1.5">
+                        <p className="font-bold text-amber-900 flex items-center gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5" /> What to Carry to the Service Center
+                        </p>
+                        {itemPolicy.conditions.map((c, i) => (
+                          <p key={i} className="text-amber-800 flex items-center gap-1.5">
+                            <Check className="w-3 h-3 text-amber-600 flex-shrink-0" /> {c}
+                          </p>
+                        ))}
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          type="submit"
+                          disabled={submitting}
+                          className="w-full btn bg-orange-600 hover:bg-orange-700 text-white py-3.5 text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-orange-600/25 rounded-xl"
+                        >
+                          {submitting ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                              <span>Submitting Request...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Wrench className="w-4 h-4" />
+                              <span>Submit Service Center Request</span>
+                            </>
+                          )}
+                        </button>
+                        <p className="text-[11px] text-slate-400 text-center mt-2">
+                          Our team will contact you within 24-48 hours with the nearest authorized service center details.
+                        </p>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              ) : (
+              /* Normal Return Policy Card */
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -484,7 +697,11 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
                   <span>Category: <strong className="capitalize">{selectedItem.category || 'General'}</strong></span>
                 </div>
               </div>
+              )}
 
+              {/* Regular Return Form (non-electronics) */}
+              {!isServiceCenterItem && (
+              <>
               {/* Quantity selector (if ordered > 1) */}
               {selectedItem.quantity > 1 && (
                 <div>
@@ -662,6 +879,7 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
                   Free reverse shipping. You will receive an instant RMA code and tracking updates.
                 </p>
               </div>
+              </>)
 
             </form>
           )}

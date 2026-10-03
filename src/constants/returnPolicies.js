@@ -34,17 +34,18 @@ export const RETURN_POLICIES = {
     requires_photo_evidence: true
   },
   electronics: {
-    eligible: true,
+    eligible: false,
     window_days: 7,
-    policy_type: 'replacement_or_repair',
-    title: '7-Day Brand Replacement & Warranty',
-    badge: '7-Day Replacement',
-    badgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
-    description: 'Eligible for free replacement within 7 days if defective or transit-damaged. Requires original brand box with matching IMEI/Serial and all accessories.',
+    policy_type: 'service_center_only',
+    title: 'Service Center Replacement Only',
+    badge: 'Service Center Only',
+    badgeColor: 'bg-orange-50 text-orange-700 border-orange-200',
+    description: 'Returns are not available for electronics. For defective or damaged items, please visit your nearest authorized service center for inspection and replacement under warranty.',
     conditions: [
-      'Original box and IMEI/Serial must match',
-      'All inbox accessories and chargers included',
-      'Device unlinked from personal accounts/PIN locks'
+      'Visit nearest authorized service center with product',
+      'Carry original invoice and warranty card',
+      'IMEI/Serial number must match purchase records',
+      'All original accessories and packaging required'
     ],
     restocking_fee_percent: 0,
     requires_photo_evidence: true
