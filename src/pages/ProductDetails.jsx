@@ -4,8 +4,9 @@ import { doc, getDoc, collection, query, orderBy, getDocs, addDoc, serverTimesta
 import { db } from '../lib/firebase';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
-import { ShoppingCart, Star, ArrowLeft, Image as ImageIcon, Send } from 'lucide-react';
+import { ShoppingCart, Star, ArrowLeft, Image as ImageIcon, Send, RotateCcw, ShieldCheck, Check } from 'lucide-react';
 import { getProductById, subscribeToProducts } from '../lib/productCache';
+import { resolvePolicyForCategory } from '../constants/returnPolicies';
 
 export default function ProductDetails() {
   const { id } = useParams();
@@ -252,11 +253,56 @@ export default function ProductDetails() {
               <button
                 onClick={() => addToCart(product)}
                 disabled={product.stock_quantity === 0}
-                className="w-full md:w-auto px-8 py-4 btn btn-primary text-lg flex items-center justify-center gap-2 shadow-xl shadow-primary-600/20 hover:shadow-primary-600/40 transition-all disabled:opacity-50 disabled:shadow-none"
+                className="w-full md:w-auto px-8 py-4 btn btn-primary text-lg flex items-center justify-center gap-2 shadow-xl shadow-primary-600/20 hover:shadow-primary-600/40 transition-all disabled:opacity-50 disabled:shadow-none mb-8"
               >
                 <ShoppingCart className="w-6 h-6" />
                 {product.stock_quantity === 0 ? 'Out of Stock' : 'Add to Cart'}
               </button>
+
+              {/* Product Return & Warranty Policy */}
+              {(() => {
+                const policy = product.return_policy || resolvePolicyForCategory(product.category);
+                return (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 mt-2 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-2 rounded-xl ${policy.eligible ? 'bg-primary-100 text-primary-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {policy.eligible ? <RotateCcw className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 text-sm">{policy.title}</h4>
+                          <p className="text-xs text-slate-500">
+                            {policy.eligible 
+                              ? `${policy.window_days}-day window from delivery date`
+                              : 'Special category conditions apply'}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${policy.badgeColor || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                        {policy.badge || (policy.eligible ? `${policy.window_days}D Return` : 'Non-Returnable')}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-600 leading-relaxed border-t border-slate-200/60 pt-2.5">
+                      {policy.description}
+                    </p>
+
+                    {policy.conditions && policy.conditions.length > 0 && (
+                      <div className="pt-1">
+                        <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Conditions:</p>
+                        <ul className="space-y-1">
+                          {policy.conditions.map((cond, idx) => (
+                            <li key={idx} className="flex items-center gap-1.5 text-xs text-slate-600">
+                              <Check className="w-3.5 h-3.5 text-primary-600 flex-shrink-0" />
+                              <span>{cond}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>

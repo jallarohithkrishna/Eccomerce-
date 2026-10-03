@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { Package, Clock, CheckCircle, X, MapPin, Search } from 'lucide-react';
+import { Package, Clock, CheckCircle, X, MapPin, Search, RotateCcw } from 'lucide-react';
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
@@ -51,6 +51,70 @@ export default function AdminOrders() {
       alert("Failed to update status");
     } finally {
       setUpdating(null);
+    }
+  };
+
+  const handleAdminUpdateReturn = async (orderId, rmaNumber, action) => {
+    try {
+      const orderToUpdate = orders.find(o => o.id === orderId);
+      if (!orderToUpdate || !orderToUpdate.returns) return;
+
+      const updatedReturns = orderToUpdate.returns.map(ret => {
+        if (ret.rma_number !== rmaNumber) return ret;
+        const timeline = [...(ret.timeline || [])];
+        let newStatus = ret.status;
+        let newStatusLabel = ret.status_label;
+
+        if (action === 'inspect') {
+          timeline[3] = {
+            stage: 'Warehouse Inspection & Verification Passed',
+            timestamp: new Date().toISOString(),
+            done: true
+          };
+          newStatus = 'inspected';
+          newStatusLabel = 'Inspection Passed at Central Warehouse';
+        } else if (action === 'refund') {
+          if (!timeline[3]?.done) {
+            timeline[3] = {
+              stage: 'Warehouse Inspection & Verification Passed',
+              timestamp: new Date().toISOString(),
+              done: true
+            };
+          }
+          timeline[4] = {
+            stage: ret.resolution_type === 'replacement' ? 'Replacement Order Dispatched' : 'Refund Credited to Account',
+            timestamp: new Date().toISOString(),
+            done: true
+          };
+          newStatus = 'refunded';
+          newStatusLabel = ret.resolution_type === 'replacement' ? 'Replacement Unit Shipped' : 'Refund Credited Successfully';
+        }
+
+        return {
+          ...ret,
+          status: newStatus,
+          status_label: newStatusLabel,
+          timeline,
+          updated_at: new Date().toISOString()
+        };
+      });
+
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, {
+        returns: updatedReturns,
+        return_status: action === 'refund' ? 'refunded' : 'inspected'
+      });
+
+      if (selectedOrder && selectedOrder.id === orderId) {
+        setSelectedOrder({
+          ...selectedOrder,
+          returns: updatedReturns,
+          return_status: action === 'refund' ? 'refunded' : 'inspected'
+        });
+      }
+    } catch (err) {
+      console.error('Error updating return in admin:', err);
+      alert('Error updating return: ' + err.message);
     }
   };
 
@@ -172,6 +236,14 @@ export default function AdminOrders() {
                         {order.status === 'delivered' && <CheckCircle className="w-3 h-3 mr-1" />}
                         {order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Pending'}
                       </span>
+                      {order.returns && order.returns.length > 0 && (
+                        <div className="mt-1">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            {order.returns[0].rma_number}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td className="p-4 text-sm">
                       <select 
@@ -263,6 +335,87 @@ export default function AdminOrders() {
                   ))}
                 </div>
               </div>
+
+              {/* Return & RMA Requests (if any) */}
+              {selectedOrder.returns && selectedOrder.returns.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-purple-900 mb-3 uppercase tracking-wider flex items-center gap-2">
+                    <RotateCcw className="w-4 h-4 text-purple-600" />
+                    Return Requests ({selectedOrder.returns.length})
+                  </h3>
+                  <div className="space-y-3">
+                    {selectedOrder.returns.map((ret, idx) => (
+                      <div key={idx} className="bg-purple-50/70 border border-purple-200 rounded-xl p-4 text-xs space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-sm text-purple-950">{ret.rma_number}</span>
+                          <span className="bg-purple-200 text-purple-800 font-bold px-2 py-0.5 rounded-full text-[11px]">
+                            {ret.status_label || ret.status}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-700 pt-1 border-t border-purple-200/60">
+                          <div>
+                            <span className="text-slate-400 block">Item:</span>
+                            <span className="font-semibold text-slate-900">{ret.item?.name}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Reason:</span>
+                            <span className="font-semibold capitalize">{ret.reason_code?.replace('_', ' ')}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Resolution:</span>
+                            <span className="font-semibold capitalize text-purple-900">{ret.resolution_type?.replace('_', ' ')}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Refund:</span>
+                            <span className="font-bold text-emerald-700">₹{Number(ret.refund_amount).toFixed(2)}</span>
+                          </div>
+                        </div>
+                        {ret.customer_notes && (
+                          <p className="text-slate-600 italic bg-white/70 p-2 rounded-lg border border-purple-100">
+                            &ldquo;{ret.customer_notes}&rdquo;
+                          </p>
+                        )}
+                        <div className="text-[11px] text-slate-500 flex justify-between items-center pt-1 border-t border-purple-200/50">
+                          <span>Carrier: {ret.pickup_details?.carrier} ({ret.pickup_details?.tracking_number})</span>
+                          <span>Slot: {ret.pickup_details?.slot}</span>
+                        </div>
+
+                        {/* Warehouse Action Buttons */}
+                        <div className="flex items-center justify-between pt-2 border-t border-purple-200/70 mt-2">
+                          <span className="text-[11px] font-semibold text-purple-900">
+                            Current Stage: {ret.status_label || ret.status}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {!ret.timeline?.[3]?.done && (
+                              <button
+                                type="button"
+                                onClick={() => handleAdminUpdateReturn(selectedOrder.id, ret.rma_number, 'inspect')}
+                                className="btn bg-primary-600 hover:bg-primary-700 text-white text-[11px] font-bold py-1.5 px-3 rounded-lg shadow-sm"
+                              >
+                                Pass Warehouse Inspection
+                              </button>
+                            )}
+                            {ret.timeline?.[3]?.done && !ret.timeline?.[4]?.done && (
+                              <button
+                                type="button"
+                                onClick={() => handleAdminUpdateReturn(selectedOrder.id, ret.rma_number, 'refund')}
+                                className="btn bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-1.5 px-3 rounded-lg shadow-sm"
+                              >
+                                Release Refund (₹{Number(ret.refund_amount).toFixed(2)})
+                              </button>
+                            )}
+                            {ret.timeline?.[4]?.done && (
+                              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                ✓ Return Resolved & Refunded
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Totals */}
               <div className="flex justify-end pt-4">

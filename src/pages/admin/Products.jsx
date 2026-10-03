@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { Plus, Pencil, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, Image as ImageIcon, ShieldCheck } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
+import { resolvePolicyForCategory } from '../../constants/returnPolicies';
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([]);
@@ -101,7 +102,9 @@ export default function AdminProducts() {
         category: formData.category,
         price: parseFloat(formData.price),
         stock_quantity: parseInt(formData.stock_quantity, 10),
-        description: formData.description
+        description: formData.description,
+        return_policy: resolvePolicyForCategory(formData.category),
+        policy_updated_at: new Date().toISOString()
       };
 
       // Only update images if a new one was uploaded
@@ -150,6 +153,8 @@ export default function AdminProducts() {
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="px-6 py-4 text-sm font-medium text-slate-500 whitespace-nowrap">Image</th>
                 <th className="px-6 py-4 text-sm font-medium text-slate-500 whitespace-nowrap">Name</th>
+                <th className="px-6 py-4 text-sm font-medium text-slate-500 whitespace-nowrap">Category</th>
+                <th className="px-6 py-4 text-sm font-medium text-slate-500 whitespace-nowrap">Return Policy</th>
                 <th className="px-6 py-4 text-sm font-medium text-slate-500 whitespace-nowrap">Price</th>
                 <th className="px-6 py-4 text-sm font-medium text-slate-500 whitespace-nowrap">Stock</th>
                 <th className="px-6 py-4 text-sm font-medium text-slate-500 whitespace-nowrap">Actions</th>
@@ -158,45 +163,57 @@ export default function AdminProducts() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-slate-500">Loading products...</td>
+                  <td colSpan="7" className="px-6 py-8 text-center text-slate-500">Loading products...</td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-slate-500">No products found. Add your first product!</td>
+                  <td colSpan="7" className="px-6 py-8 text-center text-slate-500">No products found. Add your first product!</td>
                 </tr>
               ) : (
-                products.map((product) => (
-                  <tr key={product.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4">
-                      {product.images && product.images.length > 0 ? (
-                        <img src={product.images[0]} alt={product.name} className="h-10 w-10 rounded-md object-cover" />
-                      ) : (
-                        <div className="h-10 w-10 bg-slate-100 rounded-md flex items-center justify-center text-slate-400">
-                          <ImageIcon className="h-5 w-5" />
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">{product.name}</td>
-                    <td className="px-6 py-4 text-slate-600 whitespace-nowrap">₹{Number(product.price).toFixed(2)}</td>
-                    <td className="px-6 py-4 text-slate-600">{product.stock_quantity}</td>
-                    <td className="px-6 py-4 flex items-center space-x-3">
-                      <button 
-                        onClick={() => openEditModal(product)}
-                        className="text-slate-400 hover:text-primary-600 transition-colors"
-                        title="Edit Product"
-                      >
-                        <Pencil className="h-5 w-5" />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(product.id)}
-                        className="text-slate-400 hover:text-red-500 transition-colors"
-                        title="Delete Product"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                products.map((product) => {
+                  const policy = product.return_policy || resolvePolicyForCategory(product.category);
+                  return (
+                    <tr key={product.id} className="hover:bg-slate-50">
+                      <td className="px-6 py-4">
+                        {product.images && product.images.length > 0 ? (
+                          <img src={product.images[0]} alt={product.name} className="h-10 w-10 rounded-md object-cover" />
+                        ) : (
+                          <div className="h-10 w-10 bg-slate-100 rounded-md flex items-center justify-center text-slate-400">
+                            <ImageIcon className="h-5 w-5" />
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap max-w-[200px] truncate" title={product.name}>{product.name}</td>
+                      <td className="px-6 py-4 text-slate-500 whitespace-nowrap text-xs">
+                        <span className="bg-slate-100 px-2 py-1 rounded-md">{product.category || 'General'}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${policy.badgeColor || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          {policy.badge || (policy.eligible ? `${policy.window_days}D Return` : 'Non-Returnable')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 whitespace-nowrap">₹{Number(product.price).toFixed(2)}</td>
+                      <td className="px-6 py-4 text-slate-600">{product.stock_quantity}</td>
+                      <td className="px-6 py-4 flex items-center space-x-3">
+                        <button 
+                          onClick={() => openEditModal(product)}
+                          className="text-slate-400 hover:text-primary-600 transition-colors"
+                          title="Edit Product"
+                        >
+                          <Pencil className="h-5 w-5" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(product.id)}
+                          className="text-slate-400 hover:text-red-500 transition-colors"
+                          title="Delete Product"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -277,6 +294,27 @@ export default function AdminProducts() {
                   onChange={e => setFormData({...formData, description: e.target.value})}
                 ></textarea>
               </div>
+
+              {/* Dynamic Policy Preview */}
+              {(() => {
+                const pol = resolvePolicyForCategory(formData.category);
+                return (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-primary-600" />
+                        Assigned Return Policy:
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full font-medium border ${pol.badgeColor}`}>
+                        {pol.badge}
+                      </span>
+                    </div>
+                    <p className="text-slate-600">{pol.title}</p>
+                    <p className="text-slate-400 text-[11px]">{pol.description}</p>
+                  </div>
+                );
+              })()}
+
               <div className="flex justify-end space-x-3 mt-8">
                 <button 
                   type="button" 
