@@ -59,6 +59,8 @@ export default function AdminOrders() {
       const orderToUpdate = orders.find(o => o.id === orderId);
       if (!orderToUpdate || !orderToUpdate.returns) return;
 
+      let newOrderStatus = orderToUpdate.status;
+
       const updatedReturns = orderToUpdate.returns.map(ret => {
         if (ret.rma_number !== rmaNumber) return ret;
         const timeline = [...(ret.timeline || [])];
@@ -73,6 +75,7 @@ export default function AdminOrders() {
           };
           newStatus = 'inspected';
           newStatusLabel = 'Inspection Passed at Central Warehouse';
+          newOrderStatus = 'returned';
         } else if (action === 'refund') {
           if (!timeline[3]?.done) {
             timeline[3] = {
@@ -88,6 +91,7 @@ export default function AdminOrders() {
           };
           newStatus = 'refunded';
           newStatusLabel = ret.resolution_type === 'replacement' ? 'Replacement Unit Shipped' : 'Refund Credited Successfully';
+          newOrderStatus = 'refunded';
         }
 
         return {
@@ -102,6 +106,7 @@ export default function AdminOrders() {
       const orderRef = doc(db, 'orders', orderId);
       await updateDoc(orderRef, {
         returns: updatedReturns,
+        status: newOrderStatus,
         return_status: action === 'refund' ? 'refunded' : 'inspected'
       });
 
@@ -109,6 +114,7 @@ export default function AdminOrders() {
         setSelectedOrder({
           ...selectedOrder,
           returns: updatedReturns,
+          status: newOrderStatus,
           return_status: action === 'refund' ? 'refunded' : 'inspected'
         });
       }
@@ -256,6 +262,8 @@ export default function AdminOrders() {
                         <option value="processing">Processing</option>
                         <option value="shipped">Shipped</option>
                         <option value="delivered">Delivered</option>
+                        <option value="returned">Warehouse Received</option>
+                        <option value="refunded">Amount Credited / Refunded</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
                       <button

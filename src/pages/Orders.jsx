@@ -143,13 +143,15 @@ export default function Orders() {
                         order.status === 'processing' ? 'bg-blue-50 text-blue-700' :
                         order.status === 'shipped' ? 'bg-indigo-50 text-indigo-700' :
                         order.status === 'delivered' ? 'bg-green-50 text-green-700' :
-                        hasReturns ? 'bg-purple-50 text-purple-700' :
+                        (order.status === 'returned' || order.status === 'refunded' || hasReturns) ? 'bg-purple-50 text-purple-700' :
                         'bg-slate-100 text-slate-700'
                       }`}>
                         {order.status === 'processing' && <Clock className="w-4 h-4 mr-1.5" />}
                         {order.status === 'delivered' && <CheckCircle className="w-4 h-4 mr-1.5" />}
-                        {hasReturns && <RotateCcw className="w-4 h-4 mr-1.5" />}
-                        {order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Pending'}
+                        {(order.status === 'returned' || order.status === 'refunded' || hasReturns) && <RotateCcw className="w-4 h-4 mr-1.5" />}
+                        {order.status === 'refunded' ? 'Amount Credited' : 
+                         order.status === 'returned' ? 'Warehouse Received' : 
+                         order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Pending'}
                       </span>
                     </div>
                   </div>
