@@ -1,30 +1,30 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
-import { Package, Clock, CheckCircle, X, MapPin, Search, RotateCcw } from 'lucide-react';
+import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit, startAfter, getDocs } from 'firebase/firestore';
+import { Package, Clock, CheckCircle, X, MapPin, Search, RotateCcw, Loader2 } from 'lucide-react';
 
 export default function AdminOrders() {
+  const PAGE_SIZE = 25;
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
   const [updating, setUpdating] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'orders'), (querySnapshot) => {
-      let ordersList = querySnapshot.docs.map(doc => ({
+    const q = query(collection(db, 'orders'), orderBy('created_at', 'desc'), limit(PAGE_SIZE));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const ordersList = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
 
-      // Sort descending by date in memory
-      ordersList.sort((a, b) => {
-        const timeA = a.created_at?.toMillis ? a.created_at.toMillis() : 0;
-        const timeB = b.created_at?.toMillis ? b.created_at.toMillis() : 0;
-        return timeB - timeA;
-      });
-
       setOrders(ordersList);
+      setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1] || null);
+      setHasMore(querySnapshot.docs.length === PAGE_SIZE);
       setLoading(false);
     }, (error) => {
       console.error("Error fetching orders:", error);
@@ -33,6 +33,32 @@ export default function AdminOrders() {
 
     return () => unsubscribe();
   }, []);
+
+  const handleLoadMore = async () => {
+    if (!lastDoc || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const q = query(
+        collection(db, 'orders'),
+        orderBy('created_at', 'desc'),
+        startAfter(lastDoc),
+        limit(PAGE_SIZE)
+      );
+      const querySnapshot = await getDocs(q);
+      const moreOrders = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      setOrders(prev => [...prev, ...moreOrders]);
+      setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1] || null);
+      setHasMore(querySnapshot.docs.length === PAGE_SIZE);
+    } catch (error) {
+      console.error("Error loading more orders:", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const handleStatusChange = async (orderId, newStatus) => {
     setUpdating(orderId);
@@ -297,6 +323,26 @@ export default function AdminOrders() {
             </tbody>
           </table>
         </div>
+
+        {/* Load More Button */}
+        {hasMore && !searchTerm && (
+          <div className="p-4 border-t border-slate-100 flex justify-center bg-slate-50/50">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="btn btn-secondary text-xs font-bold py-2 px-5 shadow-xs bg-white hover:bg-slate-50 border border-slate-200 flex items-center gap-2"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary-600" />
+                  <span>Loading more orders...</span>
+                </>
+              ) : (
+                <span>Load More Orders (25)</span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Order Details Modal */}

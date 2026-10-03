@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit, startAfter, getDocs } from 'firebase/firestore';
 import { 
   RotateCcw, Search, Filter, AlertTriangle, CheckCircle2, 
   Clock, Package, Truck, ArrowRight, ShieldCheck, QrCode, 
   ExternalLink, FileText, UserCheck, CreditCard, ChevronRight,
-  ClipboardCheck, Warehouse, CheckCheck, Send, AlertCircle
+  ClipboardCheck, Warehouse, CheckCheck, Send, AlertCircle, Loader2
 } from 'lucide-react';
 import { 
   RETURN_PIPELINE, 
@@ -15,21 +15,23 @@ import {
 import { toolAdvanceReturnStatus } from '../../lib/returnAgent';
 
 export default function AdminReturns() {
+  const PAGE_SIZE = 25;
   const [allReturns, setAllReturns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('ALL'); // 'ALL' | 'EXCEPTIONS' | 'PENDING' | 'APPROVED' | 'COMPLETED'
   const [selectedReturn, setSelectedReturn] = useState(null);
   const [staffNote, setStaffNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Real-time listener across orders and returns
-  useEffect(() => {
-    // 1. Listen to orders collection which contains customer returns
-    const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => {
-      const returnsMap = new Map();
+  const processOrdersDocs = (docs, isAppend = false) => {
+    setAllReturns(prevReturns => {
+      const returnsMap = isAppend ? new Map(prevReturns.map(r => [r.rma_number, r])) : new Map();
 
-      snapshot.forEach(docSnap => {
+      docs.forEach(docSnap => {
         const orderData = docSnap.data();
         if (Array.isArray(orderData.returns)) {
           orderData.returns.forEach(ret => {
@@ -53,14 +55,23 @@ export default function AdminReturns() {
       });
 
       const list = Array.from(returnsMap.values());
-      // Sort descending by created_at
       list.sort((a, b) => {
         const timeA = new Date(a.created_at || 0).getTime();
         const timeB = new Date(b.created_at || 0).getTime();
         return timeB - timeA;
       });
 
-      setAllReturns(list);
+      return list;
+    });
+  };
+
+  // Real-time listener for first page of orders
+  useEffect(() => {
+    const q = query(collection(db, 'orders'), orderBy('created_at', 'desc'), limit(PAGE_SIZE));
+    const unsubOrders = onSnapshot(q, (snapshot) => {
+      processOrdersDocs(snapshot.docs, false);
+      setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+      setHasMore(snapshot.docs.length === PAGE_SIZE);
       setLoading(false);
     }, (err) => {
       console.error('Error fetching admin returns:', err);
@@ -69,6 +80,27 @@ export default function AdminReturns() {
 
     return () => unsubOrders();
   }, []);
+
+  const handleLoadMore = async () => {
+    if (!lastDoc || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const q = query(
+        collection(db, 'orders'),
+        orderBy('created_at', 'desc'),
+        startAfter(lastDoc),
+        limit(PAGE_SIZE)
+      );
+      const snapshot = await getDocs(q);
+      processOrdersDocs(snapshot.docs, true);
+      setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+      setHasMore(snapshot.docs.length === PAGE_SIZE);
+    } catch (err) {
+      console.error('Error loading more returns:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // Compute Metrics
   const metrics = {
@@ -423,6 +455,26 @@ export default function AdminReturns() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Load More Returns Button */}
+        {hasMore && !searchTerm && (
+          <div className="p-4 border-t border-slate-100 flex justify-center bg-slate-50/50">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="btn btn-secondary text-xs font-bold py-2 px-5 shadow-xs bg-white hover:bg-slate-50 border border-slate-200 flex items-center gap-2"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary-600" />
+                  <span>Loading more returns...</span>
+                </>
+              ) : (
+                <span>Load More Returns (25)</span>
+              )}
+            </button>
           </div>
         )}
       </div>
