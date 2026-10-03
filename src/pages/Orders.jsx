@@ -261,7 +261,7 @@ export default function Orders() {
           setSelectedOrderForReturn(null);
           setReturnModalExistingReturn(null);
         }}
-        order={selectedOrderForReturn}
+        order={orders.find(o => o.id === selectedOrderForReturn?.id) || selectedOrderForReturn}
         existingReturn={returnModalExistingReturn}
       />
     </div>
