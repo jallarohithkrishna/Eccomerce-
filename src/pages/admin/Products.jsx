@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { apiFetch } from '../../lib/api';
 import { Plus, Pencil, Trash2, Image as ImageIcon, ShieldCheck } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 import { resolvePolicyForCategory } from '../../constants/returnPolicies';
@@ -71,10 +71,8 @@ export default function AdminProducts() {
     if (!window.confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
       return;
     }
-    
     try {
-      await deleteDoc(doc(db, 'products', id));
-      // Local state is updated automatically via onSnapshot
+      await apiFetch(`/api/products/${id}`, { method: 'DELETE' });
     } catch (error) {
       alert('Error deleting product: ' + error.message);
     }
@@ -108,15 +106,17 @@ export default function AdminProducts() {
         productData.images = imageUrls;
       }
 
-      // 3. Save Product to Firestore
+      // 3. Save Product via server API (Admin SDK writes to Firestore)
       if (editingId) {
-        // Update existing document
-        const productRef = doc(db, 'products', editingId);
-        await updateDoc(productRef, productData);
+        await apiFetch(`/api/products/${editingId}`, {
+          method: 'PUT',
+          body: JSON.stringify(productData)
+        });
       } else {
-        // Add new document
-        productData.created_at = serverTimestamp();
-        await addDoc(collection(db, 'products'), productData);
+        await apiFetch('/api/products', {
+          method: 'POST',
+          body: JSON.stringify(productData)
+        });
       }
       
       setShowModal(false);

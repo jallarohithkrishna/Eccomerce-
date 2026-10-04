@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Package, Clock, CheckCircle, RotateCcw, Truck, ShieldCheck, ChevronRight, Sparkles, QrCode } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -68,11 +68,8 @@ export default function Orders() {
   const simulateDelivery = async (orderId) => {
     setSimulating(orderId);
     try {
-      const orderRef = doc(db, 'orders', orderId);
-      await updateDoc(orderRef, {
-        status: 'delivered',
-        delivered_at: serverTimestamp(),
-        updated_at: serverTimestamp()
+      await apiFetch(`/api/orders/${orderId}/deliver`, {
+        method: 'POST'
       });
     } catch (err) {
       console.error("Failed to simulate delivery:", err);

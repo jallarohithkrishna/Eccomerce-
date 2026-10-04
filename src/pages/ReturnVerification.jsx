@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
+import { apiFetch } from '../lib/api';
 import { 
   CheckCircle2, Clock, Truck, ShieldCheck, MapPin, 
   RotateCcw, Package, Sparkles, Printer, Copy, Check, 
@@ -131,13 +132,11 @@ export default function ReturnVerification() {
     setScanConfirmed(true);
     try {
       if (!returnData?.rma_number) return;
-      // Sync update if possible
       const retQ = query(collection(db, 'returns'), where('rma_number', '==', returnData.rma_number));
       const retSnap = await getDocs(retQ);
       if (!retSnap.empty) {
-        await updateDoc(doc(db, 'returns', retSnap.docs[0].id), {
-          courier_intake_verified: true,
-          courier_intake_timestamp: serverTimestamp()
+        await apiFetch(`/api/returns/${retSnap.docs[0].id}/courier-intake`, {
+          method: 'POST'
         });
       }
     } catch (e) {

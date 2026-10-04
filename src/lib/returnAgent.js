@@ -15,13 +15,11 @@ import {
   collection, 
   doc, 
   getDocs, 
-  getDoc, 
-  updateDoc, 
-  addDoc, 
+  getDoc,
   query, 
-  where, 
-  serverTimestamp 
+  where
 } from 'firebase/firestore';
+import { apiFetch } from './api';
 import { resolvePolicyForItem, isElectronicsItem } from '../constants/returnPolicies';
 import { buildInitialTimeline, RETURN_STATUS_DETAILS } from '../constants/returnStatuses';
 
@@ -350,29 +348,22 @@ export async function toolCreateReturnRMA({
     updated_at: nowIso
   };
 
-  // 1. Update order document with new return record
+  // Write return via server API (Admin SDK handles orders + returns writes)
   try {
-    const existingReturns = Array.isArray(order.returns) ? order.returns : [];
-    const updatedReturns = [...existingReturns, returnRecord];
-    const orderRef = doc(db, 'orders', order.id);
-    await updateDoc(orderRef, {
-      returns: updatedReturns,
-      return_status: 'pickup_scheduled',
-      updated_at: serverTimestamp()
+    const result = await apiFetch('/api/returns/intake', {
+      method: 'POST',
+      body: JSON.stringify({
+        orderId: order.id,
+        productId: item.product_id || null,
+        reason: reasonCode,
+        quantity: quantity,
+        resolutionType: resolutionType || 'refund',
+        meta: returnRecord
+      })
     });
+    if (result?.returnRecord?.id) returnRecord.id = result.returnRecord.id;
   } catch (err) {
-    console.error('Failed to update order with return:', err);
-  }
-
-  // 2. Write to top-level returns collection for indexing & Admin/Agent dashboard
-  try {
-    const returnDocRef = await addDoc(collection(db, 'returns'), {
-      ...returnRecord,
-      created_at_server: serverTimestamp()
-    });
-    returnRecord.id = returnDocRef.id;
-  } catch (err) {
-    console.warn('Top-level returns write fallback (will be saved in order doc):', err);
+    console.warn('Server return intake call failed:', err);
   }
 
   return returnRecord;
@@ -479,27 +470,22 @@ export async function toolEscalateToHumanReview({
     updated_at: nowIso
   };
 
+  // Write exception via server API
   try {
-    const existingReturns = Array.isArray(order.returns) ? order.returns : [];
-    const updatedReturns = [...existingReturns, exceptionRecord];
-    const orderRef = doc(db, 'orders', order.id);
-    await updateDoc(orderRef, {
-      returns: updatedReturns,
-      return_status: 'human_review',
-      updated_at: serverTimestamp()
+    const result = await apiFetch('/api/returns/intake', {
+      method: 'POST',
+      body: JSON.stringify({
+        orderId: order.id,
+        productId: item.product_id || null,
+        reason: reasonCode,
+        quantity: 1,
+        resolutionType: 'human_review',
+        meta: exceptionRecord
+      })
     });
+    if (result?.returnRecord?.id) exceptionRecord.id = result.returnRecord.id;
   } catch (err) {
-    console.error('Failed to update order with exception:', err);
-  }
-
-  try {
-    const returnDocRef = await addDoc(collection(db, 'returns'), {
-      ...exceptionRecord,
-      created_at_server: serverTimestamp()
-    });
-    exceptionRecord.id = returnDocRef.id;
-  } catch (err) {
-    console.warn('Top-level returns collection fallback:', err);
+    console.warn('Server exception intake call failed:', err);
   }
 
   return exceptionRecord;
@@ -528,69 +514,22 @@ export async function toolAdvanceReturnStatus({
     details: note ? `Status advanced to "${statusMeta.label}". Note: ${note}` : `Status advanced to "${statusMeta.label}".`
   };
 
-  // 1. Update in orders document
-  if (orderId) {
-    try {
-      const orderRef = doc(db, 'orders', orderId);
-      const orderSnap = await getDoc(orderRef);
-      if (orderSnap.exists()) {
-        const orderData = orderSnap.data();
-        const updatedReturns = (orderData.returns || []).map(r => {
-          if (r.rma_number === rmaNumber) {
-            const updatedTimeline = (r.timeline || []).map(tl => {
-              if (tl.status === nextStatus) {
-                return { ...tl, done: true, timestamp: nowIso };
-              }
-              return tl;
-            });
-            const updatedAudit = [...(r.audit_history || []), auditEntry];
-            return {
-              ...r,
-              status: nextStatus,
-              status_label: statusMeta.label,
-              timeline: updatedTimeline,
-              audit_history: updatedAudit,
-              updated_at: nowIso
-            };
-          }
-          return r;
-        });
-
-        await updateDoc(orderRef, {
-          returns: updatedReturns,
-          return_status: nextStatus.toLowerCase(),
-          updated_at: serverTimestamp()
-        });
-      }
-    } catch (err) {
-      console.error('Failed to update order return status:', err);
+  // Advance via server API (Admin SDK writes orders + returns)
+  try {
+    if (returnDocId) {
+      await apiFetch(`/api/returns/${returnDocId}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ resolution: nextStatus })
+      });
     }
-  }
-
-  // 2. Update top-level return doc if exists
-  if (returnDocId) {
-    try {
-      const retRef = doc(db, 'returns', returnDocId);
-      const retSnap = await getDoc(retRef);
-      if (retSnap.exists()) {
-        const retData = retSnap.data();
-        const updatedTimeline = (retData.timeline || []).map(tl => {
-          if (tl.status === nextStatus) {
-            return { ...tl, done: true, timestamp: nowIso };
-          }
-          return tl;
-        });
-        await updateDoc(retRef, {
-          status: nextStatus,
-          status_label: statusMeta.label,
-          timeline: updatedTimeline,
-          audit_history: [...(retData.audit_history || []), auditEntry],
-          updated_at: nowIso
-        });
-      }
-    } catch (err) {
-      console.error('Failed to update top-level return doc:', err);
+    if (orderId) {
+      await apiFetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus.toLowerCase() })
+      });
     }
+  } catch (err) {
+    console.error('Failed to advance return status via server:', err);
   }
 
   return { success: true, nextStatus };

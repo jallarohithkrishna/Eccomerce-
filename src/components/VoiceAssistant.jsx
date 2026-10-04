@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/firebase';
 import {
-  collection, getDocs, deleteDoc, doc, updateDoc, Timestamp, query, where, orderBy, limit,
+  collection, getDocs, Timestamp, query, where, orderBy, limit,
 } from 'firebase/firestore';
+import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ensureProductsLoaded, getCachedProducts } from '../lib/productCache';
 import { Mic, MicOff, X, Loader2 } from 'lucide-react';
@@ -827,7 +828,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           }
           const delInfo = `Found "${delMatch.name}". Deleting now.`;
           addLog('jarvis', delInfo); speak(delInfo);
-          await deleteDoc(doc(db,'products', delMatch.id));
+          await apiFetch(`/api/products/${delMatch.id}`, { method: 'DELETE' });
           const delDone = `"${delMatch.name}" deleted successfully.`;
           addLog('jarvis', delDone); speak(delDone);
           break;
@@ -843,7 +844,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           }
           const stInfo = `Found "${stMatch.name}". Marking as out of stock.`;
           addLog('jarvis', stInfo); speak(stInfo);
-          await updateDoc(doc(db,'products', stMatch.id),{ stock_quantity: 0 });
+          await apiFetch(`/api/products/${stMatch.id}`, { method: 'PUT', body: JSON.stringify({ stock_quantity: 0 }) });
           const stDone = `Done. "${stMatch.name}" stock is now 0.`;
           addLog('jarvis', stDone); speak(stDone);
           break;
@@ -859,7 +860,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           }
           const stInfo = `Found "${stMatch.name}". Setting stock to ${cmd.quantity}.`;
           addLog('jarvis', stInfo); speak(stInfo);
-          await updateDoc(doc(db,'products', stMatch.id),{ stock_quantity: cmd.quantity });
+          await apiFetch(`/api/products/${stMatch.id}`, { method: 'PUT', body: JSON.stringify({ stock_quantity: cmd.quantity }) });
           const stDone = `Done. "${stMatch.name}" stock is now ${cmd.quantity}.`;
           addLog('jarvis', stDone); speak(stDone);
           break;
@@ -876,7 +877,7 @@ export default function VoiceAssistant({ onAddProduct, openRef }) {
           const stInfo = `Found "${stMatch.name}". Adding ${cmd.quantity} units.`;
           addLog('jarvis', stInfo); speak(stInfo);
           const newStock = (parseInt(stMatch.stock_quantity)||0) + cmd.quantity;
-          await updateDoc(doc(db,'products', stMatch.id),{ stock_quantity: newStock });
+          await apiFetch(`/api/products/${stMatch.id}`, { method: 'PUT', body: JSON.stringify({ stock_quantity: newStock }) });
           const stDone = `Done. "${stMatch.name}" now has ${newStock} units.`;
           addLog('jarvis', stDone); speak(stDone);
           break;

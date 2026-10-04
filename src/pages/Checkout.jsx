@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, writeBatch, doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
+import { apiFetch } from '../lib/api';
 import { CheckCircle, CreditCard, Truck, ShieldCheck, ArrowRight } from 'lucide-react';
 import { resolvePolicyForItem } from '../constants/returnPolicies';
 
@@ -108,30 +109,11 @@ export default function Checkout() {
         }
       }
 
-      // 1. Create the order first (customers always have permission for this)
-      await addDoc(collection(db, 'orders'), orderData);
-
-      // 2. Try to update stock (may fail if user isn't admin — that's okay)
-      try {
-        const stockBatch = writeBatch(db);
-        for (const item of cartItems) {
-          if (item.stock_quantity !== undefined) {
-            const productRef = doc(db, 'products', item.id);
-            const productSnap = await getDoc(productRef);
-            if (productSnap.exists()) {
-              const currentStock = productSnap.data().stock_quantity;
-              if (currentStock !== undefined) {
-                stockBatch.update(productRef, { 
-                  stock_quantity: Math.max(0, currentStock - item.quantity) 
-                });
-              }
-            }
-          }
-        }
-        await stockBatch.commit();
-      } catch (stockErr) {
-        console.warn("Stock update skipped (admin will handle):", stockErr.message);
-      }
+      // Create the order and safely decrement stock on the server
+      await apiFetch('/api/orders', {
+        method: 'POST',
+        body: JSON.stringify(orderData)
+      });
 
       // Success!
       setOrderId(orderNumber);

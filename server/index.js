@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -551,6 +551,285 @@ app.get('/agent/inbox',
     res.json({ cases: list });
   }
 );
+
+// ─── POST /api/orders (Create order securely on server) ──────────────────────
+app.post('/api/orders', authMiddleware, async (req, res) => {
+  const uid = req.user.uid;
+  const orderData = req.body;
+  if (!orderData) return res.status(400).json({ error: 'Order data is required' });
+
+  const customerUid = orderData.customer?.user_id || orderData.user_id;
+  if (customerUid !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
+    return res.status(403).json({ error: 'Unauthorized to create order for another user' });
+  }
+
+  // Server sets and controls status, delivered_at, returns
+  delete orderData.delivered_at;
+  delete orderData.returns;
+  orderData.status = 'processing';
+  orderData.created_at = db ? FieldValue.serverTimestamp() : new Date().toISOString();
+  orderData.updated_at = db ? FieldValue.serverTimestamp() : new Date().toISOString();
+
+  try {
+    let orderId = `ord_${Date.now()}`;
+    if (db) {
+      const docRef = await db.collection('orders').add(orderData);
+      orderId = docRef.id;
+
+      // Safely decrement stock for purchased items
+      if (Array.isArray(orderData.items)) {
+        for (const item of orderData.items) {
+          const pId = item.product_id || item.id;
+          if (pId && item.quantity) {
+            try {
+              const pRef = db.collection('products').doc(pId);
+              await pRef.update({
+                stock_quantity: FieldValue.increment(-Number(item.quantity))
+              });
+            } catch (stockErr) {
+              console.warn(`Could not update stock for product ${pId}:`, stockErr.message);
+            }
+          }
+        }
+      }
+    }
+    res.status(201).json({ success: true, id: orderId, order: { ...orderData, id: orderId } });
+  } catch (err) {
+    console.error('Error creating order:', err);
+    res.status(500).json({ error: 'Failed to create order', detail: err.message });
+  }
+});
+
+// ─── POST /api/orders/:id/deliver (Staff / Admin package delivery) ───────────
+app.post('/api/orders/:id/deliver', authMiddleware, async (req, res) => {
+  const { role } = req.user;
+  if (role !== 'admin' && role !== 'staff') {
+    return res.status(403).json({ error: 'Admin or Staff role required to simulate delivery' });
+  }
+  const orderId = req.params.id;
+  try {
+    if (db) {
+      const orderRef = db.collection('orders').doc(orderId);
+      await orderRef.update({
+        status: 'delivered',
+        delivered_at: FieldValue.serverTimestamp(),
+        updated_at: FieldValue.serverTimestamp(),
+      });
+    }
+    res.json({ success: true, orderId, status: 'delivered' });
+  } catch (err) {
+    console.error('Error marking order delivered:', err);
+    res.status(500).json({ error: 'Failed to update order delivery', detail: err.message });
+  }
+});
+
+// ─── PATCH /api/orders/:id/status (Staff status change) ──────────────────────
+app.patch('/api/orders/:id/status', authMiddleware, async (req, res) => {
+  const { role } = req.user;
+  if (role !== 'admin' && role !== 'staff') {
+    return res.status(403).json({ error: 'Admin or Staff role required' });
+  }
+  const orderId = req.params.id;
+  const { status } = req.body || {};
+  if (!status) return res.status(400).json({ error: 'Status is required' });
+
+  try {
+    if (db) {
+      const orderRef = db.collection('orders').doc(orderId);
+      await orderRef.update({
+        status,
+        updated_at: FieldValue.serverTimestamp(),
+      });
+    }
+    res.json({ success: true, orderId, status });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update order status', detail: err.message });
+  }
+});
+
+// ─── Products CRUD Endpoints (Server writes only) ───────────────────────────
+app.post('/api/products', authMiddleware, async (req, res) => {
+  const { role } = req.user;
+  if (role !== 'admin' && role !== 'staff') {
+    return res.status(403).json({ error: 'Admin or Staff role required' });
+  }
+  const productData = req.body;
+  productData.created_at = db ? FieldValue.serverTimestamp() : new Date().toISOString();
+  try {
+    let id = `prod_${Date.now()}`;
+    if (db) {
+      const ref = await db.collection('products').add(productData);
+      id = ref.id;
+    }
+    res.status(201).json({ success: true, id, product: { ...productData, id } });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add product', detail: err.message });
+  }
+});
+
+app.put('/api/products/:id', authMiddleware, async (req, res) => {
+  const { role } = req.user;
+  if (role !== 'admin' && role !== 'staff') {
+    return res.status(403).json({ error: 'Admin or Staff role required' });
+  }
+  const id = req.params.id;
+  const productData = req.body;
+  delete productData.id;
+  try {
+    if (db) {
+      await db.collection('products').doc(id).set(productData, { merge: true });
+    }
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update product', detail: err.message });
+  }
+});
+
+app.delete('/api/products/:id', authMiddleware, async (req, res) => {
+  const { role } = req.user;
+  if (role !== 'admin' && role !== 'staff') {
+    return res.status(403).json({ error: 'Admin or Staff role required' });
+  }
+  const id = req.params.id;
+  try {
+    if (db) {
+      await db.collection('products').doc(id).delete();
+    }
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete product', detail: err.message });
+  }
+});
+
+// ─── POST /api/courier/verify ───────────────────────────────────────────────
+app.post('/api/courier/verify', authMiddleware, async (req, res) => {
+  const { returnId, courierCode, note } = req.body || {};
+  if (!returnId) return res.status(400).json({ error: 'returnId is required' });
+
+  try {
+    if (db) {
+      const retRef = db.collection('returns').doc(returnId);
+      const retSnap = await retRef.get();
+      if (!retSnap.exists) {
+        return res.status(404).json({ error: 'Return record not found' });
+      }
+
+      await retRef.update({
+        status: 'COURIER_PICKED_UP',
+        courier_verified_at: FieldValue.serverTimestamp(),
+        courier_code: courierCode || 'VERIFIED',
+        updated_at: FieldValue.serverTimestamp()
+      });
+
+      const ev = createEvent({
+        returnId,
+        previousHash: GENESIS_HASH,
+        actor: req.user.uid || 'courier',
+        action: 'COURIER_PICKED_UP',
+        data: { courierCode, note }
+      });
+      await retRef.collection('events').add(ev).catch(() => {});
+    }
+    res.json({ success: true, returnId, status: 'COURIER_PICKED_UP' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to verify courier pickup', detail: err.message });
+  }
+});
+
+// ─── POST /api/returns/:id/resolve ──────────────────────────────────────────
+app.post('/api/returns/:id/resolve', authMiddleware, async (req, res) => {
+  const { role, uid } = req.user;
+  if (role !== 'admin' && role !== 'staff') {
+    return res.status(403).json({ error: 'Admin or Staff role required' });
+  }
+  const returnId = req.params.id;
+  const { resolution = 'RESOLVED' } = req.body || {};
+
+  try {
+    if (db) {
+      const retRef = db.collection('returns').doc(returnId);
+      await retRef.update({
+        status: 'COMPLETED',
+        resolved_by: uid,
+        resolved_at: FieldValue.serverTimestamp(),
+        resolution,
+        updated_at: FieldValue.serverTimestamp()
+      });
+
+      const ev = createEvent({
+        returnId,
+        previousHash: GENESIS_HASH,
+        actor: uid,
+        action: 'RESOLVED_BY_STAFF',
+        data: { resolution }
+      });
+      await retRef.collection('events').add(ev).catch(() => {});
+    }
+    res.json({ success: true, returnId, status: 'COMPLETED' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to resolve return', detail: err.message });
+  }
+});
+
+// ─── POST /api/returns/:id/courier-intake ────────────────────────────────────
+app.post('/api/returns/:id/courier-intake', authMiddleware, async (req, res) => {
+  const returnId = req.params.id;
+  try {
+    if (db) {
+      await db.collection('returns').doc(returnId).update({
+        courier_intake_verified: true,
+        courier_intake_timestamp: FieldValue.serverTimestamp(),
+        updated_at: FieldValue.serverTimestamp()
+      });
+    }
+    res.json({ success: true, returnId });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to record courier intake', detail: err.message });
+  }
+});
+
+// ─── POST /api/returns/intake ────────────────────────────────────────────────
+app.post('/api/returns/intake', authMiddleware, async (req, res) => {
+  const uid = req.user.uid;
+  const { orderId, productId, reason, quantity = 1, resolutionType = 'refund' } = req.body || {};
+  if (!orderId) return res.status(400).json({ error: 'orderId is required' });
+
+  try {
+    const returnId = `ret_${Date.now()}`;
+    const rma = `RMA-${Date.now().toString(36).toUpperCase()}`;
+    const returnRecord = {
+      id: returnId,
+      rma_number: rma,
+      orderId,
+      order_id: orderId,
+      userId: uid,
+      user_id: uid,
+      productId,
+      reason,
+      quantity,
+      resolutionType,
+      status: 'REQUESTED',
+      createdAt: new Date().toISOString(),
+      created_at: db ? FieldValue.serverTimestamp() : new Date().toISOString(),
+    };
+
+    if (db) {
+      await db.collection('returns').doc(returnId).set(returnRecord);
+      const ev = createEvent({
+        returnId,
+        previousHash: GENESIS_HASH,
+        actor: uid,
+        action: 'RETURN_REQUESTED',
+        data: { reason, quantity, resolutionType }
+      });
+      await db.collection('returns').doc(returnId).collection('events').add(ev).catch(() => {});
+    }
+
+    res.status(201).json({ success: true, returnRecord });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to process return intake', detail: err.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`AI Shopping Assistant Server running on port ${PORT}`);

@@ -1,6 +1,7 @@
 import { useState, useId, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { doc, updateDoc, collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
+import { doc, collection, query, where, getDocs } from 'firebase/firestore';
+import { apiFetch } from '../lib/api';
 import { resolvePolicyForCategory, resolvePolicyForItem, isElectronicsItem } from '../constants/returnPolicies';
 import { normalizeReturnStatus, RETURN_STATUS_DETAILS } from '../constants/returnStatuses';
 import QRCodeDisplay from './QRCodeDisplay';
@@ -189,29 +190,20 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
         r.rma_number === currentReturn.rma_number ? updatedReturnRecord : r
       ) || [updatedReturnRecord];
 
-      const orderRef = doc(db, 'orders', order.id);
-      await updateDoc(orderRef, {
-        returns: newReturnsList,
-        return_status: nextStatus.toLowerCase(),
-        updated_at: serverTimestamp()
-      });
-
-      // Also sync to top-level returns collection
-      try {
-        const retQ = query(collection(db, 'returns'), where('rma_number', '==', currentReturn.rma_number));
-        const retSnap = await getDocs(retQ);
-        if (!retSnap.empty) {
-          await updateDoc(doc(db, 'returns', retSnap.docs[0].id), {
-            status: nextStatus,
-            status_label: statusMeta.label,
-            timeline: updatedTimeline,
-            audit_history: updatedReturnRecord.audit_history,
-            updated_at: serverTimestamp()
-          });
-        }
-      } catch (syncErr) {
-        console.warn('Returns collection sync skipped:', syncErr.message);
+      // Advance return stage via server API
+      const retQ = query(collection(db, 'returns'), where('rma_number', '==', currentReturn.rma_number));
+      const retSnap = await getDocs(retQ);
+      if (!retSnap.empty) {
+        await apiFetch(`/api/returns/${retSnap.docs[0].id}/resolve`, {
+          method: 'POST',
+          body: JSON.stringify({ resolution: nextStatus })
+        });
       }
+      // Sync order status via server API
+      await apiFetch(`/api/orders/${order.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'returned' })
+      });
 
       setSuccessRma(updatedReturnRecord);
     } catch (err) {
@@ -251,22 +243,18 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
         created_at: new Date().toISOString()
       };
 
-      // Save to returns collection as service_center type
-      const updatedReturns = order.returns ? [...order.returns, scRequest] : [scRequest];
-      const orderRef = doc(db, 'orders', order.id);
-      await updateDoc(orderRef, {
-        returns: updatedReturns,
-        updated_at: serverTimestamp()
+      // Send service center request via server API
+      await apiFetch('/api/returns/intake', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId: order.id,
+          productId: selectedItem.product_id || null,
+          reason: `SERVICE_CENTER: ${scIssue}`,
+          quantity: 1,
+          resolutionType: 'service_center',
+          meta: scRequest
+        })
       });
-
-      try {
-        await addDoc(collection(db, 'returns'), {
-          ...scRequest,
-          created_at_server: serverTimestamp()
-        });
-      } catch (err) {
-        console.warn('Service center request write to returns collection skipped:', err.message);
-      }
 
       setScSubmitted(true);
     } catch (err) {
@@ -356,26 +344,22 @@ export default function ReturnModal({ isOpen, onClose, order, existingReturn = n
         ]
       };
 
-      // 1. Update the order document directly
-      const updatedReturns = order.returns ? [...order.returns, newReturnRecord] : [newReturnRecord];
-      const orderRef = doc(db, 'orders', order.id);
-      await updateDoc(orderRef, {
-        returns: updatedReturns,
-        return_status: 'approved',
-        updated_at: serverTimestamp()
+      // Send return via server API
+      const result = await apiFetch('/api/returns/intake', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId: order.id,
+          productId: selectedItem.product_id || null,
+          reason: reasonCode,
+          quantity: returnQty,
+          resolutionType,
+          meta: newReturnRecord
+        })
       });
+      // Use server-returned record if available, else optimistic local one
+      const confirmedReturn = result?.returnRecord ?? newReturnRecord;
 
-      // 2. Also try creating a top-level return document (if collection allowed)
-      try {
-        await addDoc(collection(db, 'returns'), {
-          ...newReturnRecord,
-          created_at_server: serverTimestamp()
-        });
-      } catch (err) {
-        console.warn('Top-level returns collection write skipped:', err.message);
-      }
-
-      setSuccessRma(newReturnRecord);
+      setSuccessRma(confirmedReturn);
       // Immediately close the modal popup card on successful submission
       handleSafeClose();
     } catch (err) {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit, startAfter, getDocs, where, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, doc, query, orderBy, limit, startAfter, getDocs, where } from 'firebase/firestore';
+import { apiFetch } from '../../lib/api';
 import { Package, Clock, CheckCircle, X, MapPin, Search, RotateCcw, Loader2 } from 'lucide-react';
 
 export default function AdminOrders() {
@@ -63,13 +64,12 @@ export default function AdminOrders() {
   const handleStatusChange = async (orderId, newStatus) => {
     setUpdating(orderId);
     try {
-      const orderRef = doc(db, 'orders', orderId);
-      await updateDoc(orderRef, {
-        status: newStatus
+      await apiFetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus })
       });
-      
       // Update local state
-      setOrders(orders.map(order => 
+      setOrders(orders.map(order =>
         order.id === orderId ? { ...order, status: newStatus } : order
       ));
     } catch (error) {
@@ -129,32 +129,21 @@ export default function AdminOrders() {
         };
       });
 
-      const orderRef = doc(db, 'orders', orderId);
-      await updateDoc(orderRef, {
-        returns: updatedReturns,
-        status: newOrderStatus,
-        return_status: action === 'refund' ? 'refunded' : 'inspected',
-        updated_at: serverTimestamp()
-      });
-
-      // Also sync to returns collection for live QR page
-      try {
-        const retQ = query(collection(db, 'returns'), where('rma_number', '==', rmaNumber));
-        const retSnap = await getDocs(retQ);
-        if (!retSnap.empty) {
-          const matchedReturn = updatedReturns.find(r => r.rma_number === rmaNumber);
-          if (matchedReturn) {
-            await updateDoc(doc(db, 'returns', retSnap.docs[0].id), {
-              status: matchedReturn.status,
-              status_label: matchedReturn.status_label,
-              timeline: matchedReturn.timeline,
-              updated_at: serverTimestamp()
-            });
-          }
-        }
-      } catch (syncErr) {
-        console.warn('Sync to returns collection skipped in admin:', syncErr.message);
+      // Resolve via server API (Admin SDK writes returns + orders)
+      const retQ = query(collection(db, 'returns'), where('rma_number', '==', rmaNumber));
+      const retSnap = await getDocs(retQ);
+      if (!retSnap.empty) {
+        const resolution = action === 'refund' ? 'REFUNDED' : 'INSPECTED';
+        await apiFetch(`/api/returns/${retSnap.docs[0].id}/resolve`, {
+          method: 'POST',
+          body: JSON.stringify({ resolution })
+        });
       }
+      // Sync order status via server API
+      await apiFetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newOrderStatus })
+      });
 
       if (selectedOrder && selectedOrder.id === orderId) {
         setSelectedOrder({
