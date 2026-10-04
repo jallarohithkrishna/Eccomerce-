@@ -51,11 +51,12 @@ service cloud.firestore {
 
       allow read: if isStaff() || isOrderOwner();
 
-      // Create allowed for authenticated users for their own order without delivered_at or returns tampering
+      // Create allowed for authenticated users for their own order without delivered_at, returns, or unauthorized status
       allow create: if isSignedIn() && (
         (request.resource.data.customer.user_id == request.auth.uid || request.resource.data.user_id == request.auth.uid) &&
         !('delivered_at' in request.resource.data) &&
-        !('returns' in request.resource.data)
+        !('returns' in request.resource.data) &&
+        (!('status' in request.resource.data) || request.resource.data.status in ['pending', 'processing'])
       );
 
       // Only staff can update orders via client (server uses Admin SDK which bypasses rules)
@@ -82,7 +83,7 @@ service cloud.firestore {
       // Client writes are completely disabled — only Server Admin SDK writes returns
       allow create: if false;
       allow update: if false;
-      allow delete: if isAdmin();
+      allow delete: if false;
 
       // Append-only audit events subcollection: SHA-256 chained events written only by server
       match /events/{seq} {
