@@ -64,6 +64,11 @@ export function appendMessage(conversationId, message) {
   s.updatedAt = Date.now();
 }
 
+export function getMessages(conversationId) {
+  const s = store.get(conversationId);
+  return s ? [...s.messages] : [];
+}
+
 /**
  * Store the result of a check_eligibility call.
  * Key: `orderId:productId:qty`
@@ -72,6 +77,7 @@ export function storeEligibility(conversationId, orderId, productId, qty, result
   const s = store.get(conversationId);
   if (!s) throw new Error(`Session ${conversationId} not found`);
   s.eligibilityCache.set(`${orderId}:${productId}:${qty}`, result);
+  s.lastEligibility = result;
   s.updatedAt = Date.now();
 }
 
@@ -105,13 +111,14 @@ export function resetAskRetry(conversationId) {
 }
 
 /**
- * Set the returnId and current state.
+ * Set the returnId, current state, and optional rmaCode.
  */
-export function setReturn(conversationId, returnId, state) {
+export function setReturn(conversationId, returnId, state, rmaCode = null) {
   const s = store.get(conversationId);
   if (!s) throw new Error(`Session ${conversationId} not found`);
   s.returnId     = returnId;
   s.currentState = state;
+  if (rmaCode) s.rmaCode = rmaCode;
   s.updatedAt    = Date.now();
 }
 
@@ -130,14 +137,16 @@ export function snapshot(conversationId) {
   const s = store.get(conversationId);
   if (!s) return null;
   return {
-    conversationId: s.conversationId,
-    uid:            s.uid,
-    messageCount:   s.messages.length,
-    askRetries:     s.askRetries,
-    returnId:       s.returnId,
-    currentState:   s.currentState,
-    createdAt:      s.createdAt,
-    updatedAt:      s.updatedAt,
+    conversationId:  s.conversationId,
+    uid:             s.uid,
+    messageCount:    s.messages.length,
+    askRetries:      s.askRetries,
+    returnId:        s.returnId,
+    rmaCode:         s.rmaCode || null,
+    currentState:    s.currentState,
+    lastEligibility: s.lastEligibility || null,
+    createdAt:       s.createdAt,
+    updatedAt:       s.updatedAt,
   };
 }
 

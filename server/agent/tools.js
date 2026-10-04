@@ -439,7 +439,7 @@ async function createReturn({ order_id, product_id, quantity, reason, resolution
     });
   }
 
-  session.setReturn(conversationId, returnId, STATES.APPROVED);
+  session.setReturn(conversationId, returnId, STATES.APPROVED, rmaCode);
   session.resetAskRetry(conversationId);
 
   return ok({

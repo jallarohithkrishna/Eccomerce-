@@ -94,6 +94,48 @@
 - [x] `server/evals/agent.js`: 15/15 eval cases pass (scripted mode); 2/2 injection cases blocked; 100% task success rate
 - [x] **Accept**: 92/92 total tests pass; eval 15/15; build passes. Commit.
 
+### Phase B — Agent UI, Evidence Pipeline & Human Handoff
+- [x] **Customer UI (`AiReturnAssistant.jsx`)**:
+  - [x] Replaced regex and client-side logic with `POST /agent/chat` (passing `conversationId`)
+  - [x] Added typing indicator + Token-by-token SSE streaming reader (`Accept: text/event-stream`) with single-JSON fallback
+  - [x] Read-only Case Card under agent reply: RMA number, stage stepper, decision with rule explained in plain words, and next step
+  - [x] Dynamic Quick-Reply Chips: order picker (`ord_...`), reasons, resolution options ("Refund / Exchange / Store credit"), confirmation buttons; typing remains active
+  - [x] Multi-modal Photo Evidence Upload: `POST /agent/evidence` (multipart, 5 MB limit, MIME magic-bytes check, no Firebase Storage)
+  - [x] Server stores SHA-256 hash and analysis text only (no raw image stored); non-blocking fallback if vision fails
+  - [x] Conversation Resume: stores `conversationId` in `sessionStorage` and rehydrates last 10 turns via `GET /agent/conversations/:id`
+  - [x] Multilingual handling: replies in customer's language (English, Hindi, Telugu at minimum); numbers, RMA, dates preserved from tool results
+  - [x] Failure UI: "I've passed your request to our team" + `escalate_to_human` fallback
+- [x] **Staff UI (`admin/Returns.jsx`)**:
+  - [x] Case detail "Agent trace" tab: ordered list of tool calls (name, inputs, outputs, time, model), final reply, policy decision, grounding-check status
+  - [x] Read from audit events with no extra listeners (`limit(50)`)
+  - [x] Handoff inbox: "🧑‍💼 Needs Human" filter with prepared Case Packet (facts, rules fired, recommendation, evidence analysis, and transcript)
+  - [x] "Take over" button: sets `handledBy="human"`; agent pauses and customer sees "A team member is helping you"
+  - [x] Staff replies delivered via `POST /agent/conversations/:id/staff-reply` (staff/admin role-gated)
+  - [x] "Hand back to agent" reverses takeover; every status change logged as audit event
+- [x] **Safety & Rate Limits**:
+  - [x] Untrusted data delimitation: customer text & photo analysis wrapped in `--- BEGIN UNTRUSTED EVIDENCE DATA ---` delimiters
+  - [x] Rate limiting: 20 chat messages/min/user, 5 uploads/hour/case
+  - [x] Content-based MIME inspection via magic bytes (rejects PDF / non-images regardless of extension)
+- [x] **Tests**:
+  - [x] `tests/phase-b.test.js` (15/15 tests passing): quick-reply chip generation, evidence upload to tool result, non-blocking failed vision, history resume, takeover & staff reply, staff-reply auth guard, non-image rejection, injection safety inside image analysis, staff/admin conversation access, multilingual support
+  - [x] Server total: 109/109 tests passing; 15/15 evals passing
+  - [x] Frontend lint: 0 errors; Vite production build succeeds
+- [x] **Accept**: All tests, lint, and build pass. Commit.
+
+#### Manual Script Execution Record (Phase B)
+1. **Report a cracked screen**: Customer enters "My screen arrived cracked" in `AiReturnAssistant.jsx`.
+2. **Agent picks the order**: Agent invokes `list_my_orders`, identifies the order containing the device, and renders order chips.
+3. **Uploads a photo**: Agent calls `request_evidence`. Customer clicks "Upload photo evidence". Multi-modal upload verifies MIME magic bytes, generates SHA-256 hash and vision defect analysis, storing zero raw image bytes.
+4. **Agent approves and books pickup**: Under policy, damage reported within window is approved (`create_return`), and reverse logistics are scheduled (`schedule_pickup`). Case card updates to `PICKUP_SCHEDULED` with RMA code.
+5. **Second customer asks about returned grocery item (denied)**: A second customer queries return for perishable grocery past window/non-damage. Agent evaluates deterministic policy and explains non-returnable policy in plain language.
+6. **Customer appeals**: Customer clicks "File an appeal" or requests human review. Agent calls `file_appeal` / `escalate_to_human`, setting state to `HUMAN_REVIEW`.
+7. **Staff opens case, reads trace, takes over, replies, hands back**:
+   - Staff navigates to `/admin/returns` and filters by "Needs Human".
+   - Staff opens the case, switches to the "Agent trace" tab, and reads the tool call timeline and prepared case packet.
+   - Staff clicks "Take over" (sets `handledBy="human"`, emitting `STAFF_TAKEOVER` audit event; customer sees staff handling notice).
+   - Staff types message and submits through `POST /agent/conversations/:id/staff-reply`.
+   - Staff resolves inquiry and clicks "Hand back to agent" (emitting `STAFF_HANDBACK` audit event).
+
 - [ ] Express routes with `verifyIdToken`, role checks, rate limiting, Zod validation
 - [ ] `POST /returns/intake`, `GET /returns/:id`, `POST /returns/:id/messages`, `/evidence`, `/appeal`
 - [ ] `GET /agent/returns`, `POST /agent/returns/:id/approve|deny|override`

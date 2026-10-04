@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import multer from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -8,9 +9,15 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
-import { runLoop }       from './agent/loop.js';
-import { verifyIdToken } from './middleware/auth.js';
-import { rateLimit }     from './middleware/rateLimit.js';
+import { runLoop }          from './agent/loop.js';
+import { verifyIdToken }    from './middleware/auth.js';
+import { rateLimit }        from './middleware/rateLimit.js';
+import * as conversations   from './agent/conversations.js';
+import {
+  analyzeEvidence, detectMimeType, storeEvidence, checkUploadRateLimit
+} from './agent/evidence.js';
+import * as session         from './agent/session.js';
+import { createEvent, GENESIS_HASH } from './returns/audit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -333,23 +340,27 @@ Answer the user directly and reference the relevant products.`;
   }
 });
 
-// ─── Returns Agent Route ───────────────────────────────────────────────────
+// ─── Auth helper (dev mode passthrough) ────────────────────────────────────
+const authMiddleware = async (req, res, next) => {
+  if (db) return verifyIdToken(req, res, next);
+  req.user = { uid: req.headers['x-dev-uid'] || 'anon', role: req.headers['x-dev-role'] || 'customer' };
+  next();
+};
 
+// ─── Multer — memory storage, 5 MB limit ────────────────────────────────────
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 5 * 1024 * 1024 },
+});
+
+// ─── POST /agent/chat ────────────────────────────────────────────────────────
 const AgentChatBodySchema = z.object({
   message:        z.string().min(1).max(2000),
   conversationId: z.string().min(1).max(128),
 });
 
 app.post('/agent/chat',
-  // Auth disabled when no Firebase Admin key (dev mode) — guard is best-effort
-  async (req, res, next) => {
-    if (db) {
-      return verifyIdToken(req, res, next);
-    }
-    // Dev/test mode without Admin SDK: extract uid from X-Dev-UID header
-    req.user = { uid: req.headers['x-dev-uid'] || 'anon', role: 'customer' };
-    next();
-  },
+  authMiddleware,
   rateLimit({ max: 20, windowMs: 60_000 }),
   async (req, res) => {
     const parsed = AgentChatBodySchema.safeParse(req.body);
@@ -359,21 +370,185 @@ app.post('/agent/chat',
     const { message, conversationId } = parsed.data;
     const uid = req.user.uid;
 
-    try {
-      const { reply, caseCard, auditEvents } = await runLoop({
-        userMessage: message,
-        conversationId,
-        uid,
-        db,
-      });
-      res.json({ reply, caseCard, auditEventCount: auditEvents.length });
-    } catch (err) {
-      console.error('/agent/chat error:', err);
-      res.status(500).json({
-        error:  'Agent encountered an internal error.',
-        detail: err.message,
+    // Block if taken over by staff
+    const conv = await conversations.loadConversation({ db, conversationId, uid }).catch(() => null);
+    if (conv?.handledBy) {
+      return res.json({
+        reply: 'A team member is currently helping you with this case. Please wait for their response.',
+        caseCard: conv.caseCard || {},
+        auditEventCount: 0,
       });
     }
+
+    try {
+      const { reply, caseCard, auditEvents } = await runLoop({
+        userMessage: message, conversationId, uid, db,
+      });
+
+      // Persist conversation for resume + staff audit
+      await conversations.saveConversation({
+        db, conversationId, uid,
+        messages: session.getMessages(conversationId),
+        caseCard,
+        auditEvents,
+      }).catch(() => {});
+
+      // SSE: if client accepts text/event-stream, stream the reply word-by-word
+      if (req.headers.accept === 'text/event-stream') {
+        res.set({
+          'Content-Type':  'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection':    'keep-alive',
+        });
+        const words = reply.split(' ');
+        for (const word of words) {
+          res.write(`data: ${JSON.stringify({ token: word + ' ' })}\n\n`);
+          await new Promise(r => setTimeout(r, 30));
+        }
+        res.write(`data: ${JSON.stringify({ done: true, caseCard, auditEventCount: auditEvents.length })}\n\n`);
+        res.end();
+      } else {
+        res.json({ reply, caseCard, auditEventCount: auditEvents.length });
+      }
+    } catch (err) {
+      console.error('/agent/chat error:', err);
+      res.status(500).json({ error: 'Agent encountered an internal error.', detail: err.message });
+    }
+  }
+);
+
+// ─── POST /agent/evidence ────────────────────────────────────────────────────
+app.post('/agent/evidence',
+  authMiddleware,
+  upload.single('file'),
+  async (req, res) => {
+    const uid            = req.user.uid;
+    const conversationId = req.body?.conversationId;
+    if (!conversationId) return res.status(400).json({ error: 'conversationId required' });
+    if (!req.file)       return res.status(400).json({ error: 'No file uploaded' });
+
+    // Reject by content, not extension
+    const mimeType = detectMimeType(req.file.buffer);
+    if (!mimeType) {
+      return res.status(415).json({ error: 'Unsupported file type. Upload a JPEG, PNG, or WebP image.' });
+    }
+
+    // Rate limit: 5 uploads/hour/case
+    if (!checkUploadRateLimit(conversationId)) {
+      return res.status(429).json({ error: 'Upload limit reached (5 per hour per case). Try again later.' });
+    }
+
+    const result = await analyzeEvidence({ imageBuffer: req.file.buffer, mimeType });
+    const record = storeEvidence({ conversationId, ...result });
+
+    // Safe audit event
+    const ev = createEvent({
+      returnId:     conversationId,
+      previousHash: GENESIS_HASH,
+      actor:        uid,
+      action:       'EVIDENCE_UPLOADED',
+      data:         { hash: result.hash, mimeType, sizeBytes: result.sizeBytes, verified: result.verified },
+    });
+
+    res.json({
+      evidenceId:  record.evidenceId,
+      hash:        result.hash,
+      verified:    result.verified,
+      // Analysis is returned to the agent as UNTRUSTED DATA (wrapped in delimiter on client)
+      analysis:    result.analysis,
+      confidence:  result.confidence,
+      auditEvent:  ev,
+    });
+  }
+);
+
+// ─── GET /agent/conversations/:id ────────────────────────────────────────────
+app.get('/agent/conversations/:id',
+  authMiddleware,
+  async (req, res) => {
+    const { uid, role } = req.user;
+    const isStaffOrAdmin = role === 'staff' || role === 'admin';
+    const conv = await conversations.loadConversation({ db, conversationId: req.params.id, uid, isStaffOrAdmin });
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    res.json(conv);
+  }
+);
+
+// ─── POST /agent/conversations/:id/staff-reply ───────────────────────────────
+app.post('/agent/conversations/:id/staff-reply',
+  authMiddleware,
+  async (req, res) => {
+    const { role, uid } = req.user;
+    if (role !== 'staff' && role !== 'admin') {
+      return res.status(403).json({ error: 'Staff or admin role required' });
+    }
+    const { message } = req.body || {};
+    if (!message) return res.status(400).json({ error: 'message is required' });
+
+    const conversationId = req.params.id;
+    try {
+      const staffMsg = await conversations.appendStaffReply({ db, conversationId, staffUid: uid, message });
+      res.json({ ok: true, message: staffMsg });
+    } catch (err) {
+      res.status(404).json({ error: err.message });
+    }
+  }
+);
+
+// ─── POST /agent/conversations/:id/takeover ───────────────────────────────────
+app.post('/agent/conversations/:id/takeover',
+  authMiddleware,
+  async (req, res) => {
+    const { role, uid } = req.user;
+    if (role !== 'staff' && role !== 'admin') {
+      return res.status(403).json({ error: 'Staff or admin role required' });
+    }
+    const conversationId = req.params.id;
+    const ev = createEvent({
+      returnId: conversationId, previousHash: GENESIS_HASH,
+      actor: uid, action: 'STAFF_TAKEOVER', data: { staffUid: uid, handledBy: 'human' },
+    });
+    try {
+      await conversations.setHandledBy({ db, conversationId, handledBy: 'human', actorUid: uid, auditEvent: ev });
+      res.json({ ok: true, handledBy: 'human' });
+    } catch (err) {
+      res.status(404).json({ error: err.message });
+    }
+  }
+);
+
+// ─── POST /agent/conversations/:id/handback ───────────────────────────────────
+app.post('/agent/conversations/:id/handback',
+  authMiddleware,
+  async (req, res) => {
+    const { role, uid } = req.user;
+    if (role !== 'staff' && role !== 'admin') {
+      return res.status(403).json({ error: 'Staff or admin role required' });
+    }
+    const conversationId = req.params.id;
+    const ev = createEvent({
+      returnId: conversationId, previousHash: GENESIS_HASH,
+      actor: uid, action: 'STAFF_HANDBACK', data: { staffUid: uid },
+    });
+    try {
+      await conversations.setHandledBy({ db, conversationId, handledBy: null, actorUid: uid, auditEvent: ev });
+      res.json({ ok: true, handledBy: null });
+    } catch (err) {
+      res.status(404).json({ error: err.message });
+    }
+  }
+);
+
+// ─── GET /agent/inbox (staff needs-human list) ────────────────────────────────
+app.get('/agent/inbox',
+  authMiddleware,
+  async (req, res) => {
+    const { role } = req.user;
+    if (role !== 'staff' && role !== 'admin') {
+      return res.status(403).json({ error: 'Staff or admin role required' });
+    }
+    const list = await conversations.listNeedsHuman({ db, limitN: 25 });
+    res.json({ cases: list });
   }
 );
 

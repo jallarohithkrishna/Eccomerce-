@@ -93,6 +93,9 @@ export async function classifyScope(userMessage) {
     'arrived', 'leaking', 'leaked', 'cracked', 'dented', 'not working',
     'help with a return', 'help with return', 'i need help', 'can you help',
     'moisturizer', 'lotion', 'cream', 'cosmetic', 'product issue',
+    // multilingual keywords (Hindi, Telugu, etc.)
+    'वापस', 'वापसी', 'पैसे वापस', 'खराब', 'टूट', 'सामान', 'ऑर्डर',
+    'రిటర్న్', 'వాపస్', 'డబ్బులు', 'పాడైపోయింది', 'ఆర్డర్',
   ];
   const lower = userMessage.toLowerCase();
   const keywordHit = keywords.some(k => lower.includes(k));
@@ -112,8 +115,8 @@ export async function classifyScope(userMessage) {
     return { inScope: false, confidence: 'high' };
   }
 
-  // Ambiguous — ask LLM for a single-word answer
-  if (!LLM_API_KEY) return { inScope: false, confidence: 'low' };
+  // Ambiguous — ask LLM for a single-word answer. If no key, fail open so legitimate queries aren't blocked.
+  if (!LLM_API_KEY) return { inScope: true, confidence: 'low' };
 
   try {
     const { message } = await callLLM({

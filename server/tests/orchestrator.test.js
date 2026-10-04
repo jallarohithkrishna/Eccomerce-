@@ -143,10 +143,14 @@ describe('Audit Chain', () => {
   });
 
   it('AU05 event hash changes if returnId changes', () => {
-    const e1 = createEvent({ returnId: 'R4', previousHash: GENESIS_HASH, actor: 'system', action: 'X', data: {} });
-    const e2 = createEvent({ returnId: 'R4', previousHash: GENESIS_HASH, actor: 'system', action: 'X', data: {} });
+    const isoTimestamp = '2026-01-01T00:00:00.000Z';
+    const e1 = createEvent({ returnId: 'R4', previousHash: GENESIS_HASH, actor: 'system', action: 'X', data: {}, isoTimestamp });
+    const e2 = createEvent({ returnId: 'R4', previousHash: GENESIS_HASH, actor: 'system', action: 'X', data: {}, isoTimestamp });
+    const e3 = createEvent({ returnId: 'R5', previousHash: GENESIS_HASH, actor: 'system', action: 'X', data: {}, isoTimestamp });
     // Same content → same hash (deterministic)
     assert.equal(e1.hash, e2.hash);
+    // Different returnId → different hash
+    assert.notEqual(e1.hash, e3.hash);
   });
 });
 

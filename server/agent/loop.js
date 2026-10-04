@@ -25,6 +25,10 @@ SCOPE:
 
 TONE: Empathetic, concise, professional. Never sarcastic.
 
+LANGUAGE:
+- Always reply in the same language the customer uses (English, Hindi, Telugu at minimum).
+- Numbers, dates, RMA codes, and policy details must ALWAYS be taken directly from tool results — never translate or invent numbers or dates.
+
 RULES (CRITICAL — never break these):
 1. NEVER state an amount, date, or order detail that did not come from a tool result in this conversation.
 2. NEVER assume eligibility — always call check_eligibility before create_return.
@@ -277,13 +281,20 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
 
 function buildCaseCard(conversationId) {
   const s = session.snapshot(conversationId);
+  const elig = s?.lastEligibility;
+  const returnId = s?.returnId || null;
+  const rmaCode = s?.rmaCode || (returnId ? `RMA-${returnId.replace(/^ret_/, '').toUpperCase()}` : null);
   return {
-    returnId:  s?.returnId   || null,
-    state:     s?.currentState || null,
-    decision:  null,
-    nextStep:  s?.currentState === 'APPROVED' ? 'Schedule pickup' :
-               s?.currentState === 'PICKUP_SCHEDULED' ? 'Await courier' :
-               s?.currentState === 'HUMAN_REVIEW' ? 'Specialist review in progress' : null,
+    returnId,
+    rmaCode,
+    rmaNumber: rmaCode || returnId,
+    state:     s?.currentState || (elig?.requiresHumanReview ? 'HUMAN_REVIEW' : null),
+    decision:  elig?.decisionCode || (elig?.eligible ? 'ELIGIBLE' : elig?.eligible === false ? 'INELIGIBLE' : null),
+    ruleExplanation: elig?.decisionMessage || null,
+    nextStep:  s?.currentState === 'APPROVED' ? 'Schedule courier pickup' :
+               s?.currentState === 'PICKUP_SCHEDULED' ? 'Keep item packed for courier collection' :
+               s?.currentState === 'HUMAN_REVIEW' || elig?.requiresHumanReview ? 'A specialist is reviewing your case' :
+               s?.currentState === 'REJECTED' || elig?.eligible === false ? 'You may file an appeal' : null,
   };
 }
 

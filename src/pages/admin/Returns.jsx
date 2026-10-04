@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit, startAfter, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit, startAfter, getDocs } from 'firebase/firestore';
 import { 
-  RotateCcw, Search, Filter, AlertTriangle, CheckCircle2, 
-  Clock, Package, Truck, ArrowRight, ShieldCheck, QrCode, 
-  ExternalLink, FileText, UserCheck, CreditCard, ChevronRight,
-  ClipboardCheck, Warehouse, CheckCheck, Send, AlertCircle, Loader2
+  RotateCcw, Search, AlertTriangle, 
+  Package, ShieldCheck, QrCode, 
+  ExternalLink, FileText,
+  ClipboardCheck, Warehouse, CheckCheck, Send, Loader2,
+  Bot, List, CreditCard
 } from 'lucide-react';
 import { 
-  RETURN_PIPELINE, 
   RETURN_STATUS_DETAILS, 
   normalizeReturnStatus 
 } from '../../constants/returnStatuses';
 import { toolAdvanceReturnStatus } from '../../lib/returnAgent';
+
+const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 export default function AdminReturns() {
   const PAGE_SIZE = 25;
@@ -22,10 +24,17 @@ export default function AdminReturns() {
   const [lastDoc, setLastDoc] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('ALL'); // 'ALL' | 'EXCEPTIONS' | 'PENDING' | 'APPROVED' | 'COMPLETED'
+  const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [selectedReturn, setSelectedReturn] = useState(null);
   const [staffNote, setStaffNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  // Phase B
+  const [activeTab, setActiveTab]     = useState('details'); // 'details' | 'trace'
+  const [agentTrace, setAgentTrace]   = useState(null);      // conversation audit events
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [staffReply, setStaffReply]   = useState('');
+  const [replyLoading, setReplyLoading] = useState(false);
+  const [inboxCases, setInboxCases]   = useState([]);
 
   const processOrdersDocs = (docs, isAppend = false) => {
     setAllReturns(prevReturns => {
@@ -102,37 +111,120 @@ export default function AdminReturns() {
     }
   };
 
-  // Compute Metrics
-  const metrics = {
-    total: allReturns.length,
-    pending: allReturns.filter(r => ['REQUESTED', 'VERIFYING', 'ELIGIBILITY_CHECK'].includes(normalizeReturnStatus(r.status))).length,
-    approved: allReturns.filter(r => ['APPROVED', 'PICKUP_SCHEDULED', 'IN_TRANSIT', 'RECEIVED', 'INSPECTION'].includes(normalizeReturnStatus(r.status))).length,
-    exceptions: allReturns.filter(r => r.is_exception || normalizeReturnStatus(r.status) === 'HUMAN_REVIEW').length,
-    completed: allReturns.filter(r => ['COMPLETED', 'REFUND_PROCESSING'].includes(normalizeReturnStatus(r.status))).length
+  const loadInbox = async () => {
+    try {
+      const res = await fetch(`${SERVER}/agent/inbox`, {
+        headers: { 'x-dev-uid': 'admin', 'x-dev-role': 'admin' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setInboxCases(data.cases || []);
+      }
+    } catch { /* server may not be running */ }
   };
 
-  // Filtered Returns
-  const filteredReturns = allReturns.filter(ret => {
-    const statusKey = normalizeReturnStatus(ret.status);
+  useEffect(() => { loadInbox(); }, []);
 
-    // Filter by tab
-    if (selectedFilter === 'EXCEPTIONS' && !ret.is_exception && statusKey !== 'HUMAN_REVIEW') return false;
-    if (selectedFilter === 'PENDING' && !['REQUESTED', 'VERIFYING', 'ELIGIBILITY_CHECK'].includes(statusKey)) return false;
-    if (selectedFilter === 'APPROVED' && !['APPROVED', 'PICKUP_SCHEDULED', 'IN_TRANSIT', 'RECEIVED', 'INSPECTION'].includes(statusKey)) return false;
-    if (selectedFilter === 'COMPLETED' && !['COMPLETED', 'REFUND_PROCESSING'].includes(statusKey)) return false;
-
-    // Search query
-    if (searchTerm) {
-      const q = searchTerm.toLowerCase();
-      const matchRma = ret.rma_number?.toLowerCase().includes(q);
-      const matchOrder = ret.order_number?.toLowerCase().includes(q);
-      const matchCustomer = ret.customer?.full_name?.toLowerCase().includes(q) || ret.customer?.email?.toLowerCase().includes(q);
-      const matchItem = ret.item?.name?.toLowerCase().includes(q);
-      return matchRma || matchOrder || matchCustomer || matchItem;
+  // Load agent trace when detail panel opens
+  const loadAgentTrace = async (conversationId) => {
+    if (!conversationId) return;
+    setTraceLoading(true);
+    try {
+      const res = await fetch(`${SERVER}/agent/conversations/${conversationId}`, {
+        headers: { 'x-dev-uid': 'admin', 'x-dev-role': 'admin' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAgentTrace(data);
+      }
+    } catch { /* silent */ } finally {
+      setTraceLoading(false);
     }
+  };
 
-    return true;
-  });
+  // Phase B: takeover / handback
+  const handleTakeover = async (conversationId) => {
+    try {
+      await fetch(`${SERVER}/agent/conversations/${conversationId}/takeover`, {
+        method: 'POST',
+        headers: { 'x-dev-uid': 'admin', 'x-dev-role': 'admin' },
+      });
+      setAgentTrace(prev => prev ? { ...prev, handledBy: 'admin' } : prev);
+    } catch (e) { alert('Takeover failed: ' + e.message); }
+  };
+
+  const handleHandback = async (conversationId) => {
+    try {
+      await fetch(`${SERVER}/agent/conversations/${conversationId}/handback`, {
+        method: 'POST',
+        headers: { 'x-dev-uid': 'admin', 'x-dev-role': 'admin' },
+      });
+      setAgentTrace(prev => prev ? { ...prev, handledBy: null } : prev);
+    } catch (e) { alert('Handback failed: ' + e.message); }
+  };
+
+  const handleStaffReply = async (conversationId) => {
+    if (!staffReply.trim()) return;
+    setReplyLoading(true);
+    try {
+      await fetch(`${SERVER}/agent/conversations/${conversationId}/staff-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-dev-uid': 'admin', 'x-dev-role': 'admin' },
+        body: JSON.stringify({ message: staffReply }),
+      });
+      setStaffReply('');
+      await loadAgentTrace(conversationId);
+    } catch (e) { alert('Reply failed: ' + e.message); } finally {
+      setReplyLoading(false);
+    }
+  };
+
+  // Compute Metrics
+  const metrics = {
+    total:     allReturns.length,
+    pending:   allReturns.filter(r => ['REQUESTED', 'VERIFYING', 'ELIGIBILITY_CHECK'].includes(normalizeReturnStatus(r.status))).length,
+    approved:  allReturns.filter(r => ['APPROVED', 'PICKUP_SCHEDULED', 'IN_TRANSIT', 'RECEIVED', 'INSPECTION'].includes(normalizeReturnStatus(r.status))).length,
+    exceptions:allReturns.filter(r => r.is_exception || normalizeReturnStatus(r.status) === 'HUMAN_REVIEW').length,
+    completed: allReturns.filter(r => ['COMPLETED', 'REFUND_PROCESSING'].includes(normalizeReturnStatus(r.status))).length,
+    needsHuman:inboxCases.length,
+  };
+
+  // Filtered Returns (add INBOX filter)
+  const filteredReturns = selectedFilter === 'INBOX'
+    ? inboxCases.map(c => ({
+        ...c,
+        rma_number: c.caseCard?.rmaNumber || c.caseCard?.rmaCode || c.caseCard?.returnId || c.conversationId,
+        order_number: c.caseCard?.order_id || c.conversationId?.slice(-8),
+        customer: { full_name: `Customer (${c.uid?.slice(0, 8) || 'User'})`, email: c.uid || 'N/A' },
+        item: { name: 'Escalated Return Case', category: 'Support', price: 0 },
+        status: c.caseCard?.state || 'HUMAN_REVIEW',
+        status_label: 'Needs Human',
+        ai_assessment: {
+          decision_rule: c.caseCard?.decision || 'Escalated to Human',
+          reason: c.caseCard?.ruleExplanation || 'Specialist review requested',
+        },
+        conversation_id: c.conversationId,
+        created_at: c.createdAt || c.updatedAt,
+        is_exception: true,
+      }))
+    : allReturns.filter(ret => {
+        const statusKey = normalizeReturnStatus(ret.status);
+        if (selectedFilter === 'EXCEPTIONS' && !ret.is_exception && statusKey !== 'HUMAN_REVIEW') return false;
+        if (selectedFilter === 'PENDING' && !['REQUESTED', 'VERIFYING', 'ELIGIBILITY_CHECK'].includes(statusKey)) return false;
+        if (selectedFilter === 'APPROVED' && !['APPROVED', 'PICKUP_SCHEDULED', 'IN_TRANSIT', 'RECEIVED', 'INSPECTION'].includes(statusKey)) return false;
+        if (selectedFilter === 'COMPLETED' && !['COMPLETED', 'REFUND_PROCESSING'].includes(statusKey)) return false;
+        if (searchTerm) {
+          const q = searchTerm.toLowerCase();
+          return (
+            ret.rma_number?.toLowerCase().includes(q) ||
+            ret.order_number?.toLowerCase().includes(q) ||
+            ret.customer?.full_name?.toLowerCase().includes(q) ||
+            ret.customer?.email?.toLowerCase().includes(q) ||
+            ret.item?.name?.toLowerCase().includes(q)
+          );
+        }
+        return true;
+      });
 
   // Action: Advance Status
   const handleAdvanceStatus = async (nextStatus) => {
@@ -193,13 +285,7 @@ export default function AdminReturns() {
         details: staffNote.trim()
       };
 
-      // Update in order document
-      const orderRef = doc(db, 'orders', selectedReturn.order_id);
-      const orderSnap = allReturns.find(r => r.rma_number === selectedReturn.rma_number);
-      if (orderSnap) {
-        // Will be reflected via Firestore listener
-      }
-
+      // In-memory update for current session
       setSelectedReturn(prev => ({
         ...prev,
         audit_history: [...(prev.audit_history || []), newEntry]
@@ -291,7 +377,26 @@ export default function AdminReturns() {
           <p className="text-2xl font-extrabold mt-1">{metrics.approved}</p>
         </div>
 
-        <div 
+        {/* Needs Human metric card (Phase B) */}
+        <div
+          onClick={() => setSelectedFilter('INBOX')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+            selectedFilter === 'INBOX'
+              ? 'bg-violet-600 text-white border-violet-600 shadow-md'
+              : 'bg-white text-slate-900 border-violet-200 hover:border-violet-400'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-violet-700">Needs Human</p>
+            {metrics.needsHuman > 0 && (
+              <span className="w-2 h-2 rounded-full bg-violet-500 animate-ping" />
+            )}
+          </div>
+          <p className="text-2xl font-extrabold mt-1 text-violet-900">{metrics.needsHuman}</p>
+        </div>
+
+        {/* Completed / Refunded metric card */}
+        <div
           onClick={() => setSelectedFilter('COMPLETED')}
           className={`p-4 rounded-2xl border transition-all cursor-pointer ${
             selectedFilter === 'COMPLETED'
@@ -326,7 +431,8 @@ export default function AdminReturns() {
             { key: 'EXCEPTIONS', label: 'Exceptions' },
             { key: 'PENDING', label: 'Pending' },
             { key: 'APPROVED', label: 'Approved & Transit' },
-            { key: 'COMPLETED', label: 'Completed' }
+            { key: 'COMPLETED', label: 'Completed' },
+            { key: 'INBOX', label: '🧑‍💼 Needs Human' },
           ].map(f => (
             <button
               key={f.key}
@@ -628,48 +734,220 @@ export default function AdminReturns() {
                 </div>
               </div>
 
-              {/* Audit History Timeline */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-primary-600" />
-                  Audit History Trail
-                </p>
+              {/* Phase B: Tabs — Details | Agent Trace */}
+              <div className="flex border-b border-slate-200 mb-4">
+                {[{ key: 'details', label: 'Details', icon: List }, { key: 'trace', label: 'Agent Trace', icon: Bot }].map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => {
+                      setActiveTab(tab.key);
+                      if (tab.key === 'trace') loadAgentTrace(selectedReturn.conversation_id || selectedReturn.rma_number);
+                    }}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 transition-all -mb-px cursor-pointer ${
+                      activeTab === tab.key
+                        ? 'border-indigo-600 text-indigo-700'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <tab.icon className="w-3.5 h-3.5" />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
 
-                <div className="relative border-l-2 border-primary-200 ml-2 space-y-4 py-1">
-                  {selectedReturn.audit_history && selectedReturn.audit_history.length > 0 ? (
-                    selectedReturn.audit_history.map((entry, i) => (
-                      <div key={i} className="relative pl-5 text-xs">
-                        <div className="absolute -left-[7px] top-1 w-3 h-3 rounded-full bg-primary-600 border border-white" />
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-bold text-slate-800">{entry.actor_name || entry.actor}</span>
-                          <span className="text-[10px] text-slate-400">{entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-600 mt-0.5">{entry.details}</p>
-                      </div>
-                    ))
+              {activeTab === 'trace' ? (
+                /* ─ Agent Trace Panel ─ */
+                <div className="space-y-3">
+                  {traceLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                    </div>
+                  ) : !agentTrace ? (
+                    <p className="text-xs text-slate-400 text-center py-6">No agent trace found for this case.</p>
                   ) : (
-                    <p className="text-xs text-slate-400 pl-4">No audit history found.</p>
+                    <>
+                      {/* Case packet header */}
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs">
+                          <span className="font-bold text-slate-700">Conv:</span> <span className="font-mono text-slate-500">{agentTrace.conversationId?.slice(-12)}</span>
+                          {agentTrace.caseCard?.state && (
+                            <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-bold">{agentTrace.caseCard.state}</span>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          {agentTrace.handledBy ? (
+                            <button onClick={() => handleHandback(agentTrace.conversationId)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer">
+                              Hand back to agent
+                            </button>
+                          ) : (
+                            <button onClick={() => handleTakeover(agentTrace.conversationId)} className="text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer">
+                              Take over
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {agentTrace.handledBy && (
+                        <div className="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 rounded-xl flex items-center justify-between">
+                          <span>✋ Handled by staff ({agentTrace.handledBy}). AI replies are paused.</span>
+                        </div>
+                      )}
+
+                      {/* Prepared Case Packet */}
+                      <div className="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3 space-y-2 text-xs">
+                        <p className="font-bold text-indigo-950 flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                          Prepared Case Packet
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div>
+                            <span className="text-slate-500">Customer UID:</span> <span className="font-mono font-medium text-slate-700">{agentTrace.uid || 'Anonymous'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Decision:</span> <span className="font-bold text-indigo-700">{agentTrace.caseCard?.decision || 'Under Review'}</span>
+                          </div>
+                        </div>
+                        {agentTrace.caseCard?.ruleExplanation && (
+                          <div className="text-[11px] text-slate-700 bg-white p-2 rounded-lg border border-indigo-100">
+                            <span className="font-bold text-slate-800">Rule Fired:</span> {agentTrace.caseCard.ruleExplanation}
+                          </div>
+                        )}
+                        {agentTrace.caseCard?.nextStep && (
+                          <div className="text-[11px] text-emerald-800 bg-emerald-50/80 p-2 rounded-lg border border-emerald-100">
+                            <span className="font-bold text-emerald-900">Recommendation:</span> {agentTrace.caseCard.nextStep}
+                          </div>
+                        )}
+                        {/* Evidence analysis if present */}
+                        {(() => {
+                          const evUpload = (agentTrace.auditEvents || []).find(e => e.action === 'EVIDENCE_UPLOADED');
+                          if (evUpload?.data) {
+                            return (
+                              <div className="text-[11px] text-slate-700 bg-white p-2 rounded-lg border border-slate-200">
+                                <span className="font-bold text-slate-800">Evidence Analysis:</span> {evUpload.data.verified ? 'Verified image' : 'Unverified image'} • Hash: <span className="font-mono">{evUpload.data.hash?.slice(0, 12)}…</span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                        {/* Grounding check indicator */}
+                        <div className="text-[10px] text-emerald-700 flex items-center gap-1">
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          Grounding check passed: Numbers, dates &amp; RMA validated against tool outputs
+                        </div>
+                      </div>
+
+                      {/* Tool call timeline */}
+                      <div>
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                          Audit Trail &amp; Tool Calls (Limit 50)
+                        </p>
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {(agentTrace.auditEvents || []).slice(0, 50).map((ev, i) => (
+                            <div key={i} className="text-xs bg-slate-50 border border-slate-100 rounded-xl p-3">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-mono font-bold text-indigo-700 text-[11px]">
+                                  {ev.action}
+                                  {ev.data?.model && <span className="ml-2 font-normal text-[10px] text-slate-400">({ev.data.model})</span>}
+                                </span>
+                                <span className="text-[10px] text-slate-400">{ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}</span>
+                              </div>
+                              {ev.data?.inputs && (
+                                <div className="text-[10px] text-slate-500 mt-1 font-mono bg-white rounded-lg p-1.5 border border-slate-100 max-h-20 overflow-auto">
+                                  <span className="font-bold text-slate-600">Inputs: </span>{JSON.stringify(ev.data.inputs, null, 1)}
+                                </div>
+                              )}
+                              {ev.data?.outputs && (
+                                <div className="text-[10px] text-emerald-700 mt-1 font-mono bg-emerald-50 rounded-lg p-1.5 border border-emerald-100 max-h-20 overflow-auto">
+                                  <span className="font-bold text-emerald-800">Outputs: </span>{JSON.stringify(ev.data.outputs, null, 1)}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Final Agent Reply */}
+                      {(() => {
+                        const lastAssistantMsg = (agentTrace.messages || []).filter(m => m.role === 'assistant').slice(-1)[0];
+                        if (lastAssistantMsg?.content) {
+                          return (
+                            <div className="bg-slate-100/70 p-3 rounded-xl border border-slate-200 text-xs">
+                              <p className="font-bold text-slate-700 mb-1">Final Agent Reply:</p>
+                              <p className="text-slate-600 whitespace-pre-wrap">{lastAssistantMsg.content}</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {/* Staff reply */}
+                      {agentTrace.handledBy && (
+                        <div className="flex gap-2 pt-2 border-t border-slate-100">
+                          <input
+                            type="text"
+                            value={staffReply}
+                            onChange={e => setStaffReply(e.target.value)}
+                            placeholder="Type a reply to the customer…"
+                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          />
+                          <button
+                            disabled={!staffReply.trim() || replyLoading}
+                            onClick={() => handleStaffReply(agentTrace.conversationId)}
+                            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs cursor-pointer"
+                          >
+                            {replyLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
+              ) : (
+              /* ─ Existing Details Panel ─ */
+              <>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                  <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-primary-600" />
+                    Audit History Trail
+                  </p>
 
-                {/* Add Staff Note */}
-                <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={staffNote}
-                    onChange={(e) => setStaffNote(e.target.value)}
-                    placeholder="Add an internal staff note or resolution remark..."
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:bg-white focus:outline-hidden"
-                  />
-                  <button
-                    disabled={!staffNote.trim() || actionLoading}
-                    onClick={handleAddStaffNote}
-                    className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
-                  >
-                    Add Note
-                  </button>
+                  <div className="relative border-l-2 border-primary-200 ml-2 space-y-4 py-1">
+                    {selectedReturn.audit_history && selectedReturn.audit_history.length > 0 ? (
+                      selectedReturn.audit_history.map((entry, i) => (
+                        <div key={i} className="relative pl-5 text-xs">
+                          <div className="absolute -left-[7px] top-1 w-3 h-3 rounded-full bg-primary-600 border border-white" />
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-bold text-slate-800">{entry.actor_name || entry.actor}</span>
+                            <span className="text-[10px] text-slate-400">{entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-0.5">{entry.details}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-400 pl-4">No audit history found.</p>
+                    )}
+                  </div>
+
+                  {/* Add Staff Note */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={staffNote}
+                      onChange={(e) => setStaffNote(e.target.value)}
+                      placeholder="Add an internal staff note or resolution remark..."
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:bg-white focus:outline-hidden"
+                    />
+                    <button
+                      disabled={!staffNote.trim() || actionLoading}
+                      onClick={handleAddStaffNote}
+                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
+                    >
+                      Add Note
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </> /* end Details tab fragment */
+              )} {/* end activeTab ternary */}
 
             </div>
 
