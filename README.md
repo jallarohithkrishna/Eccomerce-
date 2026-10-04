@@ -1,16 +1,28 @@
-# React + Vite
+# Nova Store — Autonomous Product Return Resolution Agent (PS-01)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Local Development with Firebase Emulator Suite
 
-Currently, two official plugins are available:
+To run the application locally without incurring Firestore reads on the free tier:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. **Install Firebase CLI** (if not already installed):
+   ```bash
+   npm install -g firebase-tools
+   ```
 
-## React Compiler
+2. **Start the Firebase Emulators**:
+   ```bash
+   firebase emulators:start --only auth,firestore,storage
+   ```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+3. **Configure Environment**:
+   In your `.env` file, set:
+   ```env
+   VITE_USE_EMULATOR=true
+   ```
 
-## Expanding the ESLint configuration
+4. **Start the Frontend Dev Server**:
+   ```bash
+   npm run dev
+   ```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+When `VITE_USE_EMULATOR=true` is set, the frontend automatically routes all Auth, Firestore, and Storage requests to `localhost:9099`, `localhost:8080`, and `localhost:9199`.
