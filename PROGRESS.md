@@ -82,7 +82,18 @@
 - [x] Tests: 20 SM tests (all legal transitions, illegal jumps, terminals), 5 audit chain tests (tamper, broken linkage), 6 refund idempotency tests, 10 exception matrix tests
 - [x] **Accept**: 82/82 tests pass (32 policy + 50 orchestrator)
 
-### Phase 4 — Returns API
+### Phase A — Returns Agent (Tool-Calling LLM Loop)
+- [x] `server/llm/client.js`: provider-agnostic OpenAI-compat HTTP client, 18s timeout, `classifyScope()` for fast in/out-of-scope detection
+- [x] `server/agent/session.js`: in-memory session store; capped at 10 turns (20 msgs); eligibility cache per orderId+productId+qty; ask-retry counter
+- [x] `server/agent/tools.js`: 10 tools with Zod schemas (`list_my_orders`, `get_order`, `check_eligibility`, `ask_customer`, `request_evidence`, `create_return`, `schedule_pickup`, `get_return_status`, `escalate_to_human`, `file_appeal`). No refund tool exposed. Guards in code: create_return blocked without eligibility, schedule_pickup needs APPROVED state, file_appeal needs REJECTED state, all reads uid-filtered
+- [x] `server/agent/loop.js`: 8-step/20s tool-calling loop; scope guard; one-tool-at-a-time; prompt-injection detection; Zod-error retry; CLOSED_STALE detection; step-limit/timeout → escalate; grounding check on final reply
+- [x] `server/middleware/auth.js`: Firebase `verifyIdToken` middleware
+- [x] `server/middleware/rateLimit.js`: 20 req/min/uid sliding window
+- [x] `POST /agent/chat`: verifyIdToken + rateLimit(20/min) + Zod body validation + `runLoop` → `{reply, caseCard, auditEventCount}`
+- [x] `server/tests/agent.test.js`: 10/10 tests pass (happy path, expired→appeal, missing-info ask, wrong-uid refused, eligibility gate, injection blocked, off-topic redirect, step-limit escalate, electronics, Zod invalid args)
+- [x] `server/evals/agent.js`: 15/15 eval cases pass (scripted mode); 2/2 injection cases blocked; 100% task success rate
+- [x] **Accept**: 92/92 total tests pass; eval 15/15; build passes. Commit.
+
 - [ ] Express routes with `verifyIdToken`, role checks, rate limiting, Zod validation
 - [ ] `POST /returns/intake`, `GET /returns/:id`, `POST /returns/:id/messages`, `/evidence`, `/appeal`
 - [ ] `GET /agent/returns`, `POST /agent/returns/:id/approve|deny|override`

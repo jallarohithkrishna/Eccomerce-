@@ -7,6 +7,10 @@ import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { z } from 'zod';
+import { runLoop }       from './agent/loop.js';
+import { verifyIdToken } from './middleware/auth.js';
+import { rateLimit }     from './middleware/rateLimit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -328,6 +332,50 @@ Answer the user directly and reference the relevant products.`;
     res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 });
+
+// ─── Returns Agent Route ───────────────────────────────────────────────────
+
+const AgentChatBodySchema = z.object({
+  message:        z.string().min(1).max(2000),
+  conversationId: z.string().min(1).max(128),
+});
+
+app.post('/agent/chat',
+  // Auth disabled when no Firebase Admin key (dev mode) — guard is best-effort
+  async (req, res, next) => {
+    if (db) {
+      return verifyIdToken(req, res, next);
+    }
+    // Dev/test mode without Admin SDK: extract uid from X-Dev-UID header
+    req.user = { uid: req.headers['x-dev-uid'] || 'anon', role: 'customer' };
+    next();
+  },
+  rateLimit({ max: 20, windowMs: 60_000 }),
+  async (req, res) => {
+    const parsed = AgentChatBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request body', issues: parsed.error.issues });
+    }
+    const { message, conversationId } = parsed.data;
+    const uid = req.user.uid;
+
+    try {
+      const { reply, caseCard, auditEvents } = await runLoop({
+        userMessage: message,
+        conversationId,
+        uid,
+        db,
+      });
+      res.json({ reply, caseCard, auditEventCount: auditEvents.length });
+    } catch (err) {
+      console.error('/agent/chat error:', err);
+      res.status(500).json({
+        error:  'Agent encountered an internal error.',
+        detail: err.message,
+      });
+    }
+  }
+);
 
 app.listen(PORT, () => {
   console.log(`AI Shopping Assistant Server running on port ${PORT}`);
