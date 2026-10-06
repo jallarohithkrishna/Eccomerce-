@@ -978,7 +978,7 @@ app.post('/api/returns/intake', authMiddleware, async (req, res) => {
 
     // ── 6. Build the return record ────────────────────────────────────────────
     const returnId = `ret_${Date.now()}`;
-    const rma      = `RMA-${Date.now().toString(36).toUpperCase()}`;
+    const rma      = await returnStore.generateUniqueRma({ db });
     const returnRecord = {
       id: returnId,
       rma_number: rma,

@@ -18,6 +18,7 @@ import { assertTransition, STATES } from '../returns/stateMachine.js';
 import { evaluateException }  from '../returns/exceptions.js';
 import * as session          from './session.js';
 import { createEvent, GENESIS_HASH } from '../returns/audit.js';
+import { generateRma } from '../returns/rma.js';
 
 const MAX_ASK_RETRIES = 2;
 
@@ -416,8 +417,8 @@ async function createReturn({ order_id, product_id, quantity, reason, resolution
     return err(`Cannot create return: eligibility check returned NOT ELIGIBLE. Reason: ${cached.decisionMessage}`);
   }
 
-  // Generate RMA code
-  const rmaCode  = `RMA-${Date.now().toString(36).toUpperCase()}`;
+  // Generate an unguessable RMA code (12 crypto-random characters)
+  const rmaCode  = generateRma();
   const returnId = `ret_${Date.now().toString(36)}`;
 
   // Persist to Firestore (skip in test mode)

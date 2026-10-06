@@ -31,6 +31,7 @@ import { createEvent, verifyChain, GENESIS_HASH } from '../returns/audit.js';
 import { initiateRefund } from '../returns/refunds.js';
 import { analyzeEvidence, detectMimeType, checkUploadRateLimit } from '../agent/evidence.js';
 import * as returnStore from '../returns/store.js';
+import { RMA_PATTERN } from '../returns/rma.js';
 
 /** Header the carrier must send the shared secret in. */
 export const CARRIER_SECRET_HEADER = 'x-carrier-secret';
@@ -182,7 +183,7 @@ export function createReturnsRouter(db) {
         const status = eligibility?.requiresHumanReview ? STATES.HUMAN_REVIEW : STATES.REQUESTED;
 
         const returnId = `ret_${Date.now()}`;
-        const rmaNumber = `RMA-${Date.now().toString(36).toUpperCase()}`;
+        const rmaNumber = await returnStore.generateUniqueRma({ db });
 
         const returnRecord = {
           id: returnId,
@@ -263,34 +264,58 @@ export function createReturnsRouter(db) {
   });
 
   // ── 3. GET /returns/verify/:identifier (Public QR courier pass route) ─────
-  router.get('/returns/verify/:identifier', async (req, res) => {
-    const identifier = req.params.identifier;
-    const record = await returnStore.getReturn({ db, identifier });
-    if (!record) {
-      return res.status(404).json({ error: 'Return verification pass not found' });
-    }
+  // Unguessable key + 30 req/min/IP. Only non-personal logistics fields leave
+  // this endpoint: no uid, no address, no email/phone, no customer free text.
+  router.get('/returns/verify/:identifier',
+    rateLimit({ max: 30, windowMs: 60_000 }),
+    async (req, res) => {
+      const identifier = String(req.params.identifier || '').trim().toUpperCase();
 
-    // Return non-personal sanitized logistics data for courier
-    res.json({
-      id:              record.id,
-      rma_number:      record.rma_number,
-      order_number:    record.order_id || record.orderId || 'N/A',
-      status:          record.status,
-      status_label:    record.status_label || record.status,
-      item:            record.item || { name: 'Item', quantity: record.quantity || 1, price: 0 },
-      pickup_details:  record.pickup_details || { carrier: 'Express Courier' },
-      resolution_type: record.resolutionType || record.resolution_type || 'refund',
-      refund_amount:   record.refund_amount || 0,
-      createdAt:       record.createdAt,
-      timeline:        record.timeline || [
-        { stage: 'Return Requested', done: true },
-        { stage: 'RMA Authorized', done: true },
-        { stage: 'Pickup Scheduled', done: record.status !== STATES.REQUESTED },
-        { stage: 'Warehouse Inspection', done: [STATES.RECEIVED, STATES.INSPECTION, STATES.COMPLETED].includes(record.status) },
-        { stage: 'Refund Credited', done: record.status === STATES.COMPLETED },
-      ]
-    });
-  });
+      // Only well-formed RMA numbers address a case. Raw `ret_*` ids, order ids
+      // and tracking numbers are rejected outright so nothing can be enumerated.
+      if (!RMA_PATTERN.test(identifier)) {
+        return res.status(404).json({ error: 'Return verification pass not found' });
+      }
+
+      const record = await returnStore.getReturn({ db, identifier });
+      if (!record) {
+        return res.status(404).json({ error: 'Return verification pass not found' });
+      }
+
+      // Whitelist — never spread the stored record.
+      res.json({
+        id:              record.id,
+        rma_number:      record.rma_number,
+        order_number:    record.order_id || record.orderId || 'N/A',
+        status:          record.status,
+        status_label:    record.status_label || record.status,
+        item: record.item
+          ? {
+              name:      record.item.name,
+              quantity:  record.item.quantity,
+              price:     record.item.price,
+              category:  record.item.category,
+              image_url: record.item.image_url || null,
+            }
+          : { name: 'Item', quantity: record.quantity || 1, price: 0 },
+        pickup_details: {
+          carrier:         record.pickup_details?.carrier || 'Express Courier',
+          tracking_number: record.pickup_details?.tracking_number || null,
+          slot:            record.pickup_details?.slot || null,
+        },
+        resolution_type: record.resolutionType || record.resolution_type || 'refund',
+        refund_amount:   record.refund_amount || 0,
+        createdAt:       record.createdAt,
+        timeline: record.timeline || [
+          { stage: 'Return Requested', done: true },
+          { stage: 'RMA Authorized', done: true },
+          { stage: 'Pickup Scheduled', done: record.status !== STATES.REQUESTED },
+          { stage: 'Warehouse Inspection', done: [STATES.RECEIVED, STATES.INSPECTION, STATES.COMPLETED].includes(record.status) },
+          { stage: 'Refund Credited', done: record.status === STATES.COMPLETED },
+        ],
+      });
+    }
+  );
 
   // ── 4. POST & GET /returns/:id/messages ──────────────────────────────────
   const MessageBodySchema = z.object({

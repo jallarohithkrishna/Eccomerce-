@@ -5,6 +5,7 @@
  */
 
 import { GENESIS_HASH } from './audit.js';
+import { generateRma } from './rma.js';
 
 // In-memory mirrors
 const returnRecords = new Map();   // returnId -> ReturnRecord
@@ -16,6 +17,38 @@ function shouldSync(db) {
   if (!db) return false;
   if (process.env.NODE_ENV === 'test' && !process.env.FIRESTORE_EMULATOR_HOST) return false;
   return true;
+}
+
+/**
+ * Is this RMA number already taken? Checked in memory and (when syncing) in
+ * Firestore, so a freshly minted code can be proven unique before it is stored.
+ */
+export async function isRmaTaken({ db, rma }) {
+  if (!rma) return false;
+  const key = String(rma).toUpperCase();
+  if (rmaToIdMap.has(key)) return true;
+
+  if (shouldSync(db)) {
+    try {
+      const q = await db.collection('returns').where('rma_number', '==', rma).limit(1).get();
+      if (!q.empty) return true;
+    } catch (err) {
+      console.warn(`Firestore isRmaTaken error (${rma}):`, err.message);
+    }
+  }
+  return false;
+}
+
+/**
+ * Mint an RMA number that is both cryptographically random and unique.
+ * @returns {Promise<string>}
+ */
+export async function generateUniqueRma({ db, maxAttempts = 10 } = {}) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const rma = generateRma();
+    if (!(await isRmaTaken({ db, rma }))) return rma;
+  }
+  throw new Error(`Could not generate a unique RMA number after ${maxAttempts} attempts`);
 }
 
 /**
