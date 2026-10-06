@@ -356,6 +356,95 @@ describe('Staff Return Management Actions', () => {
     });
     assert.equal(overrideRes.status, 200);
     assert.equal(overrideRes.data.status, 'APPROVED');
+    assert.equal(overrideRes.data.returnRecord.override_reason, 'VIP exception approved');
+    assert.equal(overrideRes.data.returnRecord.override_by, 'staff-1');
+  });
+
+  it('API13b: override to COMPLETED or REFUND_PROCESSING is refused (400) and changes nothing', async () => {
+    for (const targetStatus of ['COMPLETED', 'REFUND_PROCESSING']) {
+      const intake = await req('/returns/intake', {
+        method: 'POST',
+        headers: { 'x-dev-uid': 'cust-ovr', 'x-dev-role': 'customer' },
+        body: { orderId: 'ord_ovr', reason: 'defect' },
+      });
+      const returnId = intake.data.returnRecord.id;
+
+      await req(`/agent/returns/${returnId}/deny`, {
+        method: 'POST',
+        headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+        body: { reason: 'no' },
+      });
+      await req(`/returns/${returnId}/appeal`, {
+        method: 'POST',
+        headers: { 'x-dev-uid': 'cust-ovr', 'x-dev-role': 'customer' },
+        body: { reason: 'Please take another look at this case' },
+      });
+
+      const overrideRes = await req(`/agent/returns/${returnId}/override`, {
+        method: 'POST',
+        headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+        body: { targetStatus, reason: 'trying to skip the warehouse' },
+      });
+      assert.equal(overrideRes.status, 400, `${targetStatus} must be refused`);
+
+      const after = await req(`/returns/${returnId}`, {
+        headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+      });
+      assert.equal(after.data.status, 'HUMAN_REVIEW', 'refused override must not change state');
+    }
+  });
+
+  it('API13c: override outside HUMAN_REVIEW, or without a reason, is refused', async () => {
+    const intake = await req('/returns/intake', {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-ovr2', 'x-dev-role': 'customer' },
+      body: { orderId: 'ord_ovr2', reason: 'defect' },
+    });
+    const returnId = intake.data.returnRecord.id;
+
+    // Case is still REQUESTED -> override is not available at all
+    const wrongState = await req(`/agent/returns/${returnId}/override`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+      body: { targetStatus: 'APPROVED', reason: 'jumping the queue' },
+    });
+    assert.equal(wrongState.status, 409);
+
+    // A reason is mandatory
+    const noReason = await req(`/agent/returns/${returnId}/override`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+      body: { targetStatus: 'APPROVED' },
+    });
+    assert.equal(noReason.status, 400);
+  });
+
+  it('API13d: a refund cannot be forced before warehouse INSPECTION', async () => {
+    const intake = await req('/returns/intake', {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-pre', 'x-dev-role': 'customer' },
+      body: { orderId: 'ord_pre', reason: 'defect' },
+    });
+    const returnId = intake.data.returnRecord.id;
+
+    // Park the case at RECEIVED — physically in the warehouse, uninspected.
+    await returnStore.saveReturn({
+      returnRecord: { id: returnId, status: 'RECEIVED', refund_amount: 500 }
+    });
+
+    // Staff cannot shortcut straight to a refund.
+    const forced = await req(`/api/returns/${returnId}/resolve`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+      body: { resolution: 'REFUNDED' },
+    });
+    assert.equal(forced.status, 409, 'RECEIVED -> COMPLETED must be refused');
+
+    const after = await req(`/returns/${returnId}`, {
+      headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+    });
+    assert.equal(after.data.status, 'RECEIVED');
+    assert.equal(after.data.refund_record, undefined);
   });
 });
 

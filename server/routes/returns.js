@@ -530,8 +530,11 @@ export function createReturnsRouter(db) {
   });
 
   // ── 10. POST /agent/returns/:id/override ──────────────────────────────────
+  // An override is a human reversing a human. It may ONLY lift a case out of
+  // HUMAN_REVIEW, and only into APPROVED or REJECTED. Refunds are unreachable:
+  // they can only be produced by warehouse INSPECTION → refund saga.
   const OverrideBodySchema = z.object({
-    targetStatus: z.string(),
+    targetStatus: z.enum([STATES.APPROVED, STATES.REJECTED]),
     reason:       z.string().min(1),
   });
 
@@ -539,14 +542,20 @@ export function createReturnsRouter(db) {
     const returnId = req.params.id;
     const parsed = OverrideBodySchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'targetStatus and reason required', issues: parsed.error.issues });
+      return res.status(400).json({ error: 'targetStatus (APPROVED or REJECTED) and reason required', issues: parsed.error.issues });
     }
 
     const { targetStatus, reason } = parsed.data;
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
-    const current = normalizeStatus(record.status) || STATES.REQUESTED;
+    const current = normalizeStatus(record.status);
+    if (current !== STATES.HUMAN_REVIEW) {
+      return res.status(409).json({
+        error: `Override is only allowed from HUMAN_REVIEW. Current state: '${record.status}'.`
+      });
+    }
+
     try {
       assertTransition(current, targetStatus);
     } catch (e) {
@@ -559,6 +568,7 @@ export function createReturnsRouter(db) {
         ...record,
         id: record.id,
         status: targetStatus,
+        status_label: targetStatus === STATES.APPROVED ? 'RMA Approved' : 'Rejected',
         override_by: req.user.uid,
         override_reason: reason,
         override_at: new Date().toISOString(),

@@ -148,7 +148,7 @@
 
 ### Phase 4b — Returns API Gap Closure
 - [x] **1. Appeal vs state machine**: `REJECTED → HUMAN_REVIEW` added to the transition table as the single appeal exception (`APPEAL_TRANSITION`); `REJECTED` stays terminal for every other edge (`isTerminal` ignores the appeal edge). `POST /returns/:id/appeal` now calls `assertTransition` before writing. SM14 rewritten to assert both halves. **Every** route that changes a return status (`approve`, `deny`, `override`, `receive`, `inspect`, `webhook`, `resolve`, `courier-intake`) and the agent's `file_appeal` tool now go through `assertTransition`. Removed `/api/courier/verify` — it wrote `COURIER_PICKED_UP`, a status that does not exist in the state machine.
-- [ ] **2. Override restriction**: `/agent/returns/:id/override` accepts only `HUMAN_REVIEW → APPROVED | REJECTED`; refunds only via `INSPECTION` + refund saga
+- [x] **2. Override restriction**: `/agent/returns/:id/override` accepts only `HUMAN_REVIEW → APPROVED | REJECTED` (Zod enum + state check), a non-empty `reason` is required and recorded on the case; refunds stay reachable only through warehouse `INSPECTION` → refund saga (`API13b`, `API13c`, `API13d`)
 - [ ] **3. Carrier webhook**: `CARRIER_WEBHOOK_SECRET` header with timing-safe compare; refuse to start in production without it; only legal transitions accepted
 - [ ] **4. Public verify**: 12+ crypto-random RMA characters (uniqueness checked), `rateLimit(30/min/IP)`, non-personal payload only
 - [ ] **5. Duplicates**: every route defined more than once listed and collapsed to one; courier-intake token + `PICKUP_SCHEDULED → IN_TRANSIT` confirmed; `tests/security.test.js` inside `npm test`
