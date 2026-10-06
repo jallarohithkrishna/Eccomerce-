@@ -40,9 +40,43 @@ after(async () => {
   }
 });
 
+function seedTestOrders() {
+  const orders = [
+    { id: 'ord_123', userId: 'cust-alice', items: [{ id: 'prod_99', product_id: 'prod_99', name: 'Shoes', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_100', userId: 'cust-alice', items: [{ id: 'prod_1', product_id: 'prod_1', name: 'Shirt', price: 500, quantity: 5, category: 'fashion' }] },
+    { id: 'ord_200', userId: 'cust-charlie', items: [{ id: 'prod_2', product_id: 'prod_2', name: 'Pants', price: 500, quantity: 5, category: 'fashion' }] },
+    { id: 'ord_1', userId: 'cust-1', items: [{ id: 'prod_1', product_id: 'prod_1', name: 'Item 1', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_2', userId: 'cust-2', items: [{ id: 'prod_2', product_id: 'prod_2', name: 'Item 2', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_3', userId: 'cust-3', items: [{ id: 'prod_3', product_id: 'prod_3', name: 'Item 3', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_4', userId: 'cust-4', items: [{ id: 'prod_4', product_id: 'prod_4', name: 'Item 4', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_appeal', userId: 'cust-appeal', items: [{ id: 'prod_appeal', product_id: 'prod_appeal', name: 'Item Appeal', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_ovr', userId: 'cust-ovr', items: [{ id: 'prod_ovr', product_id: 'prod_ovr', name: 'Item Ovr', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_ovr2', userId: 'cust-ovr2', items: [{ id: 'prod_ovr2', product_id: 'prod_ovr2', name: 'Item Ovr 2', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_pre', userId: 'cust-pre', items: [{ id: 'prod_pre', product_id: 'prod_pre', name: 'Item Pre', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_5', userId: 'cust-5', items: [{ id: 'prod_5', product_id: 'prod_5', name: 'Item 5', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_6', userId: 'cust-6', items: [{ id: 'prod_6', product_id: 'prod_6', name: 'Item 6', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_aud', userId: 'cust-audit', items: [{ id: 'prod_aud', product_id: 'prod_aud', name: 'Item Aud', price: 500, quantity: 5, category: 'standard' }] },
+    { id: 'ord_hard', userId: 'cust-hardened', items: [{ id: 'prod_hard', product_id: 'prod_hard', name: 'Purchased Item', price: 500, quantity: 10, category: 'standard' }] },
+  ];
+  for (const o of orders) {
+    returnStore.seedOrder({
+      order: {
+        id: o.id,
+        userId: o.userId,
+        customer: { user_id: o.userId, full_name: o.userId, email: `${o.userId}@test.com` },
+        status: 'delivered',
+        delivered_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        items: o.items,
+        returns: [],
+      }
+    });
+  }
+}
+
 beforeEach(() => {
   returnStore._clearAll();
   _clearEvidence();
+  seedTestOrders();
 });
 
 // Helper for making requests to test server

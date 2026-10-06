@@ -121,47 +121,126 @@ export function createReturnsRouter(db) {
       const { orderId, productId, reason, quantity, resolutionType, photoProvided } = parsed.data;
 
       try {
-        // Find order
-        let order = null;
-        let orderLookupRan = false;
-        if (shouldSync(db)) {
-          orderLookupRan = true;
-          const snap = await db.collection('orders').doc(orderId).get();
-          if (snap.exists) order = { id: snap.id, ...snap.data() };
-        }
-
-        // A return may only be filed against a real order (kept from the
-        // original /api/returns/intake contract).
-        if (orderLookupRan && !order) {
+        // 1. Order lookup — find order from Firestore or store
+        const order = await returnStore.getOrder({ db, orderId });
+        if (!order) {
           return res.status(404).json({ error: 'Order not found' });
         }
 
-        // Ownership verification if order found
-        if (order) {
-          const ownerUid = order.customer?.user_id || order.user_id || order.userId;
-          if (ownerUid && ownerUid !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
-            return res.status(403).json({ error: 'You can only create returns for your own orders' });
+        // 2. Ownership verification — caller must own the order unless admin/staff
+        const ownerUid = order.customer?.user_id || order.user_id || order.userId;
+        if (ownerUid && ownerUid !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
+          return res.status(403).json({ error: 'You can only create returns for your own orders' });
+        }
+
+        // 3. Order status verification — must be delivered
+        const orderStatus = (order.status || '').toLowerCase();
+        if (orderStatus !== 'delivered' && !order.delivered_at && !order.deliveredAt) {
+          return res.status(422).json({
+            error: 'Order must be delivered before initiating a return',
+            code: 'ORDER_NOT_DELIVERED'
+          });
+        }
+
+        // Delivered timestamp — must exist to evaluate policy window (never fall back to 'now')
+        const rawDeliveredAt = order.delivered_at || order.deliveredAt;
+        if (!rawDeliveredAt) {
+          return res.status(422).json({
+            error: 'Order delivery date is missing; cannot evaluate return window',
+            code: 'DELIVERY_DATE_MISSING'
+          });
+        }
+        const deliveredAt = rawDeliveredAt.toDate
+          ? rawDeliveredAt.toDate().toISOString()
+          : (typeof rawDeliveredAt === 'string' ? rawDeliveredAt : new Date(rawDeliveredAt).toISOString());
+
+        // 4. Product matching from order.items — no constant fallbacks
+        if (!Array.isArray(order.items) || order.items.length === 0) {
+          return res.status(400).json({ error: 'Order contains no items' });
+        }
+
+        let orderItem = null;
+        if (productId) {
+          orderItem = order.items.find(i => String(i.product_id || i.id) === String(productId));
+          if (!orderItem) {
+            return res.status(404).json({ error: `Product '${productId}' not found in order` });
+          }
+        } else if (order.items.length === 1) {
+          orderItem = order.items[0];
+        } else {
+          return res.status(400).json({ error: 'productId is required when order contains multiple items' });
+        }
+
+        const itemPrice = Number(orderItem.price);
+        if (isNaN(itemPrice) || itemPrice <= 0) {
+          return res.status(400).json({ error: 'Order item has an invalid price' });
+        }
+        const itemName  = orderItem.name || 'Purchased Item';
+        const category  = orderItem.category || 'standard';
+        const orderedQty = Number(orderItem.quantity) || 1;
+
+        // 5. Quantity limit check
+        if (Number(quantity) > orderedQty) {
+          return res.status(422).json({
+            error: `Return quantity (${quantity}) exceeds ordered quantity (${orderedQty})`,
+            code: 'EXCEEDS_ORDERED_QUANTITY',
+            orderedQuantity: orderedQty
+          });
+        }
+
+        // 6. Already returned check
+        const targetProdId = String(orderItem.product_id || orderItem.id);
+        let alreadyReturnedQty = 0;
+        const countedReturnIds = new Set();
+
+        if (Array.isArray(order.returns)) {
+          for (const ret of order.returns) {
+            const retId = ret.id || ret.returnId || ret.rma_number;
+            if (retId && countedReturnIds.has(retId)) continue;
+            if (retId) countedReturnIds.add(retId);
+
+            const retProdId = String(ret.productId || ret.product_id || ret.item?.product_id || ret.item?.id || '');
+            const retStatus = normalizeStatus(ret.status);
+            if (retProdId === targetProdId && retStatus !== STATES.REJECTED) {
+              alreadyReturnedQty += Number(ret.quantity || ret.item?.quantity || 1);
+            }
           }
         }
 
-        // Identify product and details
-        const orderItem = order?.items?.find(i =>
-          (i.product_id || i.id) === productId
-        ) || order?.items?.[0] || {
-          id: productId || 'prod_default',
-          name: 'Purchased Item',
-          price: 500,
-          category: 'standard'
-        };
+        const existingReturns = await returnStore.getReturnsForOrder({ db, orderId });
+        for (const ret of existingReturns) {
+          const retId = ret.id || ret.returnId || ret.rma_number;
+          if (retId && countedReturnIds.has(retId)) continue;
+          if (retId) countedReturnIds.add(retId);
 
-        const itemPrice = Number(orderItem.price) || 0;
-        const itemName  = orderItem.name || 'Purchased Item';
-        const category  = orderItem.category || 'standard';
-        const deliveredAt = order?.delivered_at?.toDate
-          ? order.delivered_at.toDate().toISOString()
-          : (order?.delivered_at || new Date().toISOString());
+          const retProdId = String(ret.productId || ret.product_id || ret.item?.product_id || ret.item?.id || '');
+          const retStatus = normalizeStatus(ret.status);
+          if (retProdId === targetProdId && retStatus !== STATES.REJECTED) {
+            alreadyReturnedQty += Number(ret.quantity || ret.item?.quantity || 1);
+          }
+        }
 
-        // Deterministic policy evaluation
+        const remainingReturnable = orderedQty - alreadyReturnedQty;
+        if (remainingReturnable <= 0) {
+          return res.status(422).json({
+            error: `Item '${itemName}' has already been returned`,
+            code: 'ALREADY_RETURNED',
+            orderedQuantity: orderedQty,
+            alreadyReturnedQuantity: alreadyReturnedQty
+          });
+        }
+
+        if (Number(quantity) > remainingReturnable) {
+          return res.status(422).json({
+            error: `Requested return quantity (${quantity}) exceeds remaining returnable quantity (${remainingReturnable})`,
+            code: 'EXCEEDS_RETURNABLE_QUANTITY',
+            orderedQuantity: orderedQty,
+            alreadyReturnedQuantity: alreadyReturnedQty,
+            remainingReturnableQuantity: remainingReturnable
+          });
+        }
+
+        // 7. Deterministic policy evaluation using actual delivered_at from order
         let eligibility = null;
         try {
           eligibility = evaluatePolicy({

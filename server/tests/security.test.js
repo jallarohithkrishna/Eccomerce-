@@ -77,6 +77,26 @@ async function req(endpoint, { method = 'GET', headers = {}, body } = {}) {
 }
 
 async function createReturn(uid = 'cust-sec', orderId = 'ord_sec') {
+  await returnStore.seedOrder({
+    order: {
+      id: orderId,
+      userId: uid,
+      customer: { user_id: uid, full_name: 'Security User', email: `${uid}@example.com` },
+      status: 'delivered',
+      delivered_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      items: [
+        {
+          id: 'prod_sec',
+          product_id: 'prod_sec',
+          name: 'Security Test Item',
+          price: 500,
+          quantity: 5,
+          category: 'standard',
+        }
+      ],
+      returns: [],
+    }
+  });
   const res = await req('/returns/intake', {
     method: 'POST',
     headers: { 'x-dev-uid': uid, 'x-dev-role': 'customer' },

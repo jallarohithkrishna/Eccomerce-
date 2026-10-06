@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "generate-embeddings": "node generate-embeddings.js",
-    "test": "node --test tests/policy.test.js tests/orchestrator.test.js tests/agent.test.js tests/phase-b.test.js tests/api.test.js tests/security-rules.test.js tests/security.test.js",
+    "test": "node --test tests/policy.test.js tests/orchestrator.test.js tests/agent.test.js tests/phase-b.test.js tests/api.test.js tests/security-rules.test.js tests/security.test.js tests/intake-and-persistence.test.js",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.emulator.test.js\"",
     "eval": "node evals/agent.js"
   },

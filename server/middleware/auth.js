@@ -6,15 +6,40 @@
 import { getAuth } from 'firebase-admin/auth';
 
 /**
+ * Is the dev/test header bypass (x-dev-uid, x-dev-role) allowed here?
+ *
+ * Off by default. It is only ever active when:
+ *   - NODE_ENV === 'test' (the automated test suites), or
+ *   - ALLOW_DEV_AUTH === '1' (explicit, deliberate local opt-in).
+ *
+ * NODE_ENV unset — the normal `npm start` / demo case — never enables it, so
+ * a caller cannot hand themselves a role by sending x-dev-role: admin.
+ */
+export function devAuthAllowed(env = process.env) {
+  if (env.ALLOW_DEV_AUTH === '1') return true;
+  return env.NODE_ENV === 'test';
+}
+
+let warnedDevAuth = false;
+
+/**
  * Express middleware: verifies Bearer token and populates req.user.
- * Supports dev/test bypass headers (x-dev-uid, x-dev-role) in test or local dev mode.
+ * Supports dev/test bypass headers (x-dev-uid, x-dev-role) only when
+ * devAuthAllowed() says so (NODE_ENV=test or ALLOW_DEV_AUTH=1).
  */
 export async function verifyIdToken(req, res, next) {
   const header = req.headers.authorization || '';
 
   // Check dev/test bypass when no Bearer header is passed
   if (!header.startsWith('Bearer ')) {
-    if (req.headers['x-dev-uid']) {
+    if (req.headers['x-dev-uid'] && devAuthAllowed()) {
+      if (process.env.NODE_ENV !== 'test' && !warnedDevAuth) {
+        warnedDevAuth = true;
+        console.warn(
+          '[auth] x-dev-* header bypass is ACTIVE (ALLOW_DEV_AUTH=1). ' +
+          'Never set ALLOW_DEV_AUTH outside a trusted local environment.'
+        );
+      }
       const role = req.headers['x-dev-role'] || 'customer';
       req.user = {
         uid:         req.headers['x-dev-uid'],
