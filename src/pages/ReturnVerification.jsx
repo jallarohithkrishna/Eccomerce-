@@ -102,18 +102,12 @@ export default function ReturnVerification() {
       const returnId = returnData?.id || returnData?.returnId;
       if (!returnId) return;
 
-      try {
-        const { token } = await apiFetch(`/api/returns/${returnId}/courier-token`, { method: 'POST' });
-        await apiFetch(`/api/returns/${returnId}/courier-intake`, {
-          method: 'POST',
-          body: JSON.stringify({ token })
-        });
-      } catch {
-        await apiFetch('/api/courier/verify', {
-          method: 'POST',
-          body: JSON.stringify({ returnId, courierCode: 'VERIFIED_ON_SCAN' })
-        });
-      }
+      // The signed, expiring courier token is the only intake path.
+      const { token } = await apiFetch(`/api/returns/${returnId}/courier-token`, { method: 'POST' });
+      await apiFetch(`/api/returns/${returnId}/courier-intake`, {
+        method: 'POST',
+        body: JSON.stringify({ token })
+      });
 
       setReturnData(prev => prev ? {
         ...prev,

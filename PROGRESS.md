@@ -146,7 +146,17 @@
 - [x] `server/tests/api.test.js`: 16/16 tests passing (valid token, invalid token, wrong role, intake, appeal, override, warehouse, carrier, audit chain)
 - [x] **Accept**: 125/125 total server tests passing; build & security rules passing.
 
+### Phase 4b — Returns API Gap Closure
+- [x] **1. Appeal vs state machine**: `REJECTED → HUMAN_REVIEW` added to the transition table as the single appeal exception (`APPEAL_TRANSITION`); `REJECTED` stays terminal for every other edge (`isTerminal` ignores the appeal edge). `POST /returns/:id/appeal` now calls `assertTransition` before writing. SM14 rewritten to assert both halves. **Every** route that changes a return status (`approve`, `deny`, `override`, `receive`, `inspect`, `webhook`, `resolve`, `courier-intake`) and the agent's `file_appeal` tool now go through `assertTransition`. Removed `/api/courier/verify` — it wrote `COURIER_PICKED_UP`, a status that does not exist in the state machine.
+- [ ] **2. Override restriction**: `/agent/returns/:id/override` accepts only `HUMAN_REVIEW → APPROVED | REJECTED`; refunds only via `INSPECTION` + refund saga
+- [ ] **3. Carrier webhook**: `CARRIER_WEBHOOK_SECRET` header with timing-safe compare; refuse to start in production without it; only legal transitions accepted
+- [ ] **4. Public verify**: 12+ crypto-random RMA characters (uniqueness checked), `rateLimit(30/min/IP)`, non-personal payload only
+- [ ] **5. Duplicates**: every route defined more than once listed and collapsed to one; courier-intake token + `PICKUP_SCHEDULED → IN_TRANSIT` confirmed; `tests/security.test.js` inside `npm test`
+- [ ] **6. Intake hardening test**: client `decision` / `refund_amount` proven to be ignored in favour of the policy engine
+- [ ] **Accept**: `npm test` passes; `npm run build` passes
+
 ### Phase 5 — LLM Agents
+
 - [ ] `server/llm/client.js` — provider-agnostic (OpenAI-compatible HTTP)
 - [ ] Intake agent: free text + photo → validated ReturnRequest JSON
 - [ ] Comms agent: decision JSON → grounded customer message (post-check rejects hallucinated numbers/dates)

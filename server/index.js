@@ -20,6 +20,8 @@ import {
 } from './agent/evidence.js';
 import * as session         from './agent/session.js';
 import { createEvent, GENESIS_HASH } from './returns/audit.js';
+import { assertTransition, normalizeStatus, STATES } from './returns/stateMachine.js';
+import * as returnStore from './returns/store.js';
 import { createReturnsRouter } from './routes/returns.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -747,40 +749,10 @@ app.delete('/api/products/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// ─── POST /api/courier/verify ───────────────────────────────────────────────
-app.post('/api/courier/verify', authMiddleware, async (req, res) => {
-  const { returnId, courierCode, note } = req.body || {};
-  if (!returnId) return res.status(400).json({ error: 'returnId is required' });
-
-  try {
-    if (db) {
-      const retRef = db.collection('returns').doc(returnId);
-      const retSnap = await retRef.get();
-      if (!retSnap.exists) {
-        return res.status(404).json({ error: 'Return record not found' });
-      }
-
-      await retRef.update({
-        status: 'COURIER_PICKED_UP',
-        courier_verified_at: FieldValue.serverTimestamp(),
-        courier_code: courierCode || 'VERIFIED',
-        updated_at: FieldValue.serverTimestamp()
-      });
-
-      const ev = createEvent({
-        returnId,
-        previousHash: GENESIS_HASH,
-        actor: req.user.uid || 'courier',
-        action: 'COURIER_PICKED_UP',
-        data: { courierCode, note }
-      });
-      await retRef.collection('events').add(ev).catch(() => {});
-    }
-    res.json({ success: true, returnId, status: 'COURIER_PICKED_UP' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to verify courier pickup', detail: err.message });
-  }
-});
+// NOTE: POST /api/courier/verify was removed. It wrote a status
+// ('COURIER_PICKED_UP') that does not exist in the state machine and acted as
+// an unauthenticated-signature twin of /api/returns/:id/courier-intake.
+// The signed, expiring courier token endpoint below is the single courier path.
 
 // ─── POST /api/returns/:id/resolve ──────────────────────────────────────────
 app.post('/api/returns/:id/resolve', authMiddleware, async (req, res) => {
@@ -791,28 +763,56 @@ app.post('/api/returns/:id/resolve', authMiddleware, async (req, res) => {
   const returnId = req.params.id;
   const { resolution = 'RESOLVED' } = req.body || {};
 
-  try {
-    if (db) {
-      const retRef = db.collection('returns').doc(returnId);
-      await retRef.update({
-        status: 'COMPLETED',
-        resolved_by: uid,
-        resolved_at: FieldValue.serverTimestamp(),
-        resolution,
-        updated_at: FieldValue.serverTimestamp()
-      });
+  // Map the caller's resolution onto a canonical state, then let the state
+  // machine decide whether that move is legal.
+  const RESOLUTION_ALIASES = {
+    REFUNDED:  STATES.COMPLETED,
+    RESOLVED:  STATES.COMPLETED,
+    INSPECTED: STATES.INSPECTION,
+  };
+  const targetStatus = STATES[resolution] || RESOLUTION_ALIASES[String(resolution).toUpperCase()] || null;
 
-      const ev = createEvent({
-        returnId,
-        previousHash: GENESIS_HASH,
-        actor: uid,
-        action: 'RESOLVED_BY_STAFF',
-        data: { resolution }
-      });
-      await retRef.collection('events').add(ev).catch(() => {});
+  if (!targetStatus) {
+    return res.status(400).json({ error: `Unknown resolution '${resolution}'` });
+  }
+
+  try {
+    const record = await returnStore.getReturn({ db, identifier: returnId });
+    if (!record) return res.status(404).json({ error: 'Return not found' });
+
+    const current = normalizeStatus(record.status);
+    if (current !== targetStatus) {
+      assertTransition(current, targetStatus);
     }
-    res.json({ success: true, returnId, status: 'COMPLETED' });
+
+    const updated = await returnStore.saveReturn({
+      db,
+      returnRecord: {
+        ...record,
+        id: record.id,
+        status: targetStatus,
+        status_label: targetStatus,
+        resolved_by: uid,
+        resolved_at: new Date().toISOString(),
+        resolution,
+      }
+    });
+
+    const prevHash = await returnStore.getLatestEventHash({ db, returnId: record.id });
+    const ev = createEvent({
+      returnId: record.id,
+      previousHash: prevHash || GENESIS_HASH,
+      actor: uid,
+      action: 'RESOLVED_BY_STAFF',
+      data: { from: current, to: targetStatus, resolution }
+    });
+    await returnStore.appendAuditEvent({ db, returnId: record.id, event: ev });
+
+    res.json({ success: true, returnId: record.id, status: targetStatus, returnRecord: updated });
   } catch (err) {
+    if (err && err.name === 'ReturnStateError') {
+      return res.status(409).json({ error: err.message });
+    }
     res.status(500).json({ error: 'Failed to resolve return', detail: err.message });
   }
 });
@@ -826,17 +826,15 @@ app.post('/api/returns/:id/courier-token', authMiddleware, async (req, res) => {
 
   try {
     // Verify the caller owns this return (or is staff/admin)
-    if (db) {
-      const retSnap = await db.collection('returns').doc(returnId).get();
-      if (!retSnap.exists) return res.status(404).json({ error: 'Return not found' });
-      const retData = retSnap.data();
-      const owner = retData.user_id || retData.userId;
-      if (owner !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
-        return res.status(403).json({ error: 'Not your return' });
-      }
+    const record = await returnStore.getReturn({ db, identifier: returnId });
+    if (!record) return res.status(404).json({ error: 'Return not found' });
+
+    const owner = record.user_id || record.userId;
+    if (owner !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
+      return res.status(403).json({ error: 'Not your return' });
     }
 
-    const token = generateCourierToken(returnId);
+    const token = generateCourierToken(record.id);
     res.json({ token, ttlSeconds: Math.floor(COURIER_TOKEN_TTL_MS / 1000) });
   } catch (err) {
     res.status(500).json({ error: 'Failed to generate courier token', detail: err.message });
@@ -858,47 +856,51 @@ app.post('/api/returns/:id/courier-intake', async (req, res) => {
   }
 
   try {
-    if (db) {
-      const retRef = db.collection('returns').doc(returnId);
-      const retSnap = await retRef.get();
-      if (!retSnap.exists) {
-        return res.status(404).json({ error: 'Return not found' });
-      }
+    const record = await returnStore.getReturn({ db, identifier: returnId });
+    if (!record) return res.status(404).json({ error: 'Return not found' });
 
-      const retData = retSnap.data();
+    const current = normalizeStatus(record.status);
 
-      // 2. Enforce valid transition: must be PICKUP_SCHEDULED to advance to IN_TRANSIT
-      const allowedFromStatuses = ['approved', 'APPROVED', 'PICKUP_SCHEDULED', 'pickup_scheduled'];
-      if (!allowedFromStatuses.includes(retData.status)) {
-        return res.status(409).json({
-          error: `Cannot mark in-transit from status '${retData.status}'. Expected PICKUP_SCHEDULED.`
-        });
-      }
-
-      // 3. Write only the fields we control — ignore everything else the caller sends
-      await retRef.update({
-        status: 'IN_TRANSIT',
-        courier_intake_verified: true,
-        courier_intake_timestamp: FieldValue.serverTimestamp(),
-        updated_at: FieldValue.serverTimestamp()
+    // 2. Only PICKUP_SCHEDULED → IN_TRANSIT is accepted — anything else is 409.
+    if (current !== STATES.PICKUP_SCHEDULED) {
+      return res.status(409).json({
+        error: `Cannot mark in-transit from status '${record.status}'. Expected PICKUP_SCHEDULED.`
       });
-
-      // 4. Audit event
-      const ev = createEvent({
-        returnId,
-        previousHash: GENESIS_HASH,
-        actor: 'courier',
-        action: 'COURIER_INTAKE_CONFIRMED',
-        data: { from: retData.status, to: 'IN_TRANSIT' }
-      });
-      await retRef.collection('events').add(ev).catch(() => {});
     }
+    assertTransition(current, STATES.IN_TRANSIT);
+
+    // 3. Write only the fields we control — ignore everything else the caller sends
+    await returnStore.saveReturn({
+      db,
+      returnRecord: {
+        ...record,
+        id: record.id,
+        status: STATES.IN_TRANSIT,
+        status_label: 'In Transit',
+        courier_intake_verified: true,
+        courier_intake_timestamp: new Date().toISOString(),
+      }
+    });
+
+    // 4. Audit event (hash-chained to the existing log)
+    const prevHash = await returnStore.getLatestEventHash({ db, returnId: record.id });
+    const ev = createEvent({
+      returnId: record.id,
+      previousHash: prevHash || GENESIS_HASH,
+      actor: 'courier',
+      action: 'COURIER_INTAKE_CONFIRMED',
+      data: { from: current, to: STATES.IN_TRANSIT }
+    });
+    await returnStore.appendAuditEvent({ db, returnId: record.id, event: ev });
 
     // 5. Mark token as used (replay protection) — only after successful write
     _usedCourierTokens.add(token);
 
-    res.json({ success: true, returnId, status: 'IN_TRANSIT' });
+    res.json({ success: true, returnId: record.id, status: STATES.IN_TRANSIT });
   } catch (err) {
+    if (err && err.name === 'ReturnStateError') {
+      return res.status(409).json({ error: err.message });
+    }
     res.status(500).json({ error: 'Failed to record courier intake', detail: err.message });
   }
 });

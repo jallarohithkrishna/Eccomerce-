@@ -548,6 +548,14 @@ async function fileAppeal({ return_id, appeal_reason, uid, conversationId, db })
     return err(`Cannot file appeal: return is in state ${state}. Appeals are only for rejected returns.`);
   }
 
+  // The state machine owns the REJECTED → HUMAN_REVIEW appeal exception.
+  const from = state === 'DENIED' ? STATES.REJECTED : (state || STATES.REJECTED);
+  try {
+    assertTransition(from, STATES.HUMAN_REVIEW);
+  } catch (e) {
+    return err(e.message);
+  }
+
   if (db && !return_id.startsWith('ret_TEST')) {
     await db.collection('returns').doc(return_id).update({
       status:         STATES.HUMAN_REVIEW,

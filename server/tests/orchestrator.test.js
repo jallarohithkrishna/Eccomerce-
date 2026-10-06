@@ -83,8 +83,17 @@ describe('State Machine — illegal transitions', () => {
     assert.throws(() => assertTransition(STATES.COMPLETED, STATES.REQUESTED), ReturnStateError);
     assert.throws(() => assertTransition(STATES.COMPLETED, STATES.REFUND_PROCESSING), ReturnStateError);
   });
-  it('SM14 REJECTED → any is illegal (terminal)', () => {
+  it('SM14 REJECTED → HUMAN_REVIEW is legal via appeal only; every other REJECTED move is illegal', () => {
+    // The appeal exception is the single legal edge out of REJECTED.
+    assert.doesNotThrow(() => assertTransition(STATES.REJECTED, STATES.HUMAN_REVIEW));
+    assert.equal(canTransition(STATES.REJECTED, STATES.HUMAN_REVIEW), true);
+    // REJECTED stays terminal for every other transition.
     assert.throws(() => assertTransition(STATES.REJECTED, STATES.APPROVED), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.REJECTED, STATES.COMPLETED), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.REJECTED, STATES.REFUND_PROCESSING), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.REJECTED, STATES.REQUESTED), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.REJECTED, STATES.RECEIVED), ReturnStateError);
+    assert.equal(isTerminal(STATES.REJECTED), true, 'appeal edge must not make REJECTED non-terminal');
   });
   it('SM15 REFUND_PROCESSING → REQUESTED is illegal (backward skip)', () => {
     assert.throws(() => assertTransition(STATES.REFUND_PROCESSING, STATES.REQUESTED), ReturnStateError);

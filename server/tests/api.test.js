@@ -274,6 +274,40 @@ describe('Case Messaging & Customer Appeals', () => {
     assert.equal(appealRes.status, 200);
     assert.equal(appealRes.data.returnRecord.status, 'HUMAN_REVIEW');
   });
+
+  it('API11b: appeal REJECTED → HUMAN_REVIEW is the state-machine edge and stays chain-valid', async () => {
+    const intake = await req('/returns/intake', {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-appeal', 'x-dev-role': 'customer' },
+      body: { orderId: 'ord_appeal', reason: 'defect' },
+    });
+    const returnId = intake.data.returnRecord.id;
+
+    const deny = await req(`/agent/returns/${returnId}/deny`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'staff-appeal', 'x-dev-role': 'staff' },
+      body: { reason: 'Outside the return window' },
+    });
+    assert.equal(deny.data.status, 'REJECTED');
+
+    const appeal = await req(`/returns/${returnId}/appeal`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-appeal', 'x-dev-role': 'customer' },
+      body: { reason: 'Item was damaged in transit while I was away' },
+    });
+    assert.equal(appeal.status, 200);
+    assert.equal(appeal.data.returnRecord.status, 'HUMAN_REVIEW');
+
+    const audit = await req(`/returns/${returnId}/audit`, {
+      headers: { 'x-dev-uid': 'cust-appeal', 'x-dev-role': 'customer' },
+    });
+    assert.equal(audit.data.chainValid, true, 'appeal must not break the audit hash chain');
+
+    const appealEvent = audit.data.events.find(e => e.action === 'APPEAL_FILED');
+    assert.ok(appealEvent, 'APPEAL_FILED event expected');
+    assert.equal(appealEvent.data.from, 'REJECTED');
+    assert.equal(appealEvent.data.to, 'HUMAN_REVIEW');
+  });
 });
 
 // ─── 4. Staff Actions: Approve, Deny, Override ──────────────────────────────

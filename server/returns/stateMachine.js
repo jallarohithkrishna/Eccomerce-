@@ -20,11 +20,27 @@ export const STATES = Object.freeze({
 });
 
 /**
+ * The single appeal exception.
+ * REJECTED stays terminal for every transition EXCEPT reopening the case for
+ * human review. Everything else out of REJECTED is illegal forever.
+ */
+export const APPEAL_TRANSITION = Object.freeze({
+  from: STATES.REJECTED,
+  to:   STATES.HUMAN_REVIEW,
+});
+
+/** True when (from → to) is the appeal exception rather than a normal transition. */
+export function isAppealTransition(from, to) {
+  return from === APPEAL_TRANSITION.from && to === APPEAL_TRANSITION.to;
+}
+
+/**
  * Legal transitions: from → Set of allowed 'to' states
  */
 const TRANSITION_MAP = {
-  [STATES.REQUESTED]:         new Set([STATES.VERIFYING, STATES.HUMAN_REVIEW, STATES.REJECTED]),
-  [STATES.VERIFYING]:         new Set([STATES.ELIGIBILITY_CHECK, STATES.HUMAN_REVIEW, STATES.REJECTED]),
+  // Staff/agent may approve or reject a freshly filed case.
+  [STATES.REQUESTED]:         new Set([STATES.VERIFYING, STATES.APPROVED, STATES.HUMAN_REVIEW, STATES.REJECTED]),
+  [STATES.VERIFYING]:         new Set([STATES.ELIGIBILITY_CHECK, STATES.APPROVED, STATES.HUMAN_REVIEW, STATES.REJECTED]),
   [STATES.ELIGIBILITY_CHECK]: new Set([STATES.APPROVED, STATES.HUMAN_REVIEW, STATES.REJECTED]),
   [STATES.APPROVED]:          new Set([STATES.PICKUP_SCHEDULED, STATES.HUMAN_REVIEW]),
   [STATES.PICKUP_SCHEDULED]:  new Set([STATES.IN_TRANSIT, STATES.HUMAN_REVIEW]),
@@ -33,7 +49,8 @@ const TRANSITION_MAP = {
   [STATES.INSPECTION]:        new Set([STATES.REFUND_PROCESSING, STATES.HUMAN_REVIEW, STATES.REJECTED]),
   [STATES.REFUND_PROCESSING]: new Set([STATES.COMPLETED, STATES.HUMAN_REVIEW]),
   [STATES.COMPLETED]:         new Set(), // terminal
-  [STATES.REJECTED]:          new Set(), // terminal
+  // Terminal except for the appeal exception (REJECTED → HUMAN_REVIEW).
+  [STATES.REJECTED]:          new Set([STATES.HUMAN_REVIEW]),
   // HUMAN_REVIEW can transition back to any non-terminal state (manual override)
   [STATES.HUMAN_REVIEW]:      new Set([
     STATES.ELIGIBILITY_CHECK,
@@ -44,6 +61,19 @@ const TRANSITION_MAP = {
     STATES.COMPLETED,
   ]),
 };
+
+/**
+ * Map legacy/lower-case status strings onto canonical STATES values so that
+ * records written before this module existed can still be transitioned.
+ * Unknown values are returned untouched (and will fail assertTransition).
+ */
+export function normalizeStatus(status) {
+  if (!status || typeof status !== 'string') return status;
+  if (TRANSITION_MAP[status]) return status;
+  const upper = status.toUpperCase();
+  if (TRANSITION_MAP[upper]) return upper;
+  return status;
+}
 
 export class ReturnStateError extends Error {
   constructor(from, to) {
@@ -91,8 +121,14 @@ export function allowedTransitions(from) {
 
 /**
  * Whether a state is terminal (no further transitions possible).
+ * The appeal exception (REJECTED → HUMAN_REVIEW) does not make REJECTED
+ * non-terminal: REJECTED stays terminal for every other transition.
  */
 export function isTerminal(state) {
   const allowed = TRANSITION_MAP[state];
-  return allowed ? allowed.size === 0 : false;
+  if (!allowed) return false;
+  for (const to of allowed) {
+    if (!isAppealTransition(state, to)) return false;
+  }
+  return true;
 }

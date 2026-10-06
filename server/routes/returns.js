@@ -25,7 +25,7 @@ import multer from 'multer';
 import { verifyIdToken, requireRole } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { evaluate as evaluatePolicy } from '../policy/engine.js';
-import { assertTransition, canTransition, STATES } from '../returns/stateMachine.js';
+import { assertTransition, normalizeStatus, STATES } from '../returns/stateMachine.js';
 import { createEvent, verifyChain, GENESIS_HASH } from '../returns/audit.js';
 import { initiateRefund } from '../returns/refunds.js';
 import { analyzeEvidence, detectMimeType, checkUploadRateLimit } from '../agent/evidence.js';
@@ -406,6 +406,14 @@ export function createReturnsRouter(db) {
       return res.status(400).json({ error: `Cannot appeal return with status '${record.status}'. Only REJECTED returns can be appealed.` });
     }
 
+    // The state machine is the authority: REJECTED → HUMAN_REVIEW is the one
+    // legal edge out of REJECTED (the appeal exception). Anything else throws.
+    try {
+      assertTransition(normalizeStatus(record.status), STATES.HUMAN_REVIEW);
+    } catch (e) {
+      return res.status(409).json({ error: e.message });
+    }
+
     const updated = await returnStore.saveReturn({
       db,
       returnRecord: {
@@ -443,19 +451,15 @@ export function createReturnsRouter(db) {
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
-    const current = record.status || STATES.REQUESTED;
+    const current = normalizeStatus(record.status) || STATES.REQUESTED;
 
-    // Check if legal transition
+    // Already approved — idempotent, no write.
     if (current === STATES.APPROVED) {
       return res.json({ success: true, status: STATES.APPROVED, returnRecord: record });
     }
 
     try {
-      if (current === STATES.HUMAN_REVIEW || current === STATES.ELIGIBILITY_CHECK || current === STATES.REQUESTED || current === STATES.VERIFYING) {
-        // Legal transition to APPROVED
-      } else {
-        assertTransition(current, STATES.APPROVED);
-      }
+      assertTransition(current, STATES.APPROVED);
     } catch (e) {
       return res.status(409).json({ error: e.message });
     }
@@ -495,13 +499,9 @@ export function createReturnsRouter(db) {
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
-    const current = record.status || STATES.REQUESTED;
+    const current = normalizeStatus(record.status) || STATES.REQUESTED;
     try {
-      if (current === STATES.HUMAN_REVIEW || current === STATES.REQUESTED || current === STATES.VERIFYING || current === STATES.ELIGIBILITY_CHECK || current === STATES.INSPECTION) {
-        // Legal to deny
-      } else {
-        assertTransition(current, STATES.REJECTED);
-      }
+      assertTransition(current, STATES.REJECTED);
     } catch (e) {
       return res.status(409).json({ error: e.message });
     }
@@ -546,7 +546,7 @@ export function createReturnsRouter(db) {
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
-    const current = record.status || STATES.REQUESTED;
+    const current = normalizeStatus(record.status) || STATES.REQUESTED;
     try {
       assertTransition(current, targetStatus);
     } catch (e) {
@@ -581,10 +581,13 @@ export function createReturnsRouter(db) {
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
-    const current = record.status;
-    const allowed = [STATES.IN_TRANSIT, STATES.PICKUP_SCHEDULED, 'in_transit', 'pickup_scheduled'];
-    if (!allowed.includes(current)) {
-      return res.status(409).json({ error: `Cannot receive package in state '${current}'. Expected IN_TRANSIT.` });
+    const current = normalizeStatus(record.status);
+    try {
+      assertTransition(current, STATES.RECEIVED);
+    } catch (e) {
+      return res.status(409).json({
+        error: `Cannot receive package in state '${record.status}'. Expected IN_TRANSIT. ${e.message}`
+      });
     }
 
     const updated = await returnStore.saveReturn({
@@ -627,12 +630,42 @@ export function createReturnsRouter(db) {
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
+    const current = normalizeStatus(record.status);
+
+    // Step 1 — the case must enter INSPECTION before anything is refunded.
+    try {
+      assertTransition(current, STATES.INSPECTION);
+    } catch (e) {
+      return res.status(409).json({
+        error: `Cannot inspect package in state '${record.status}'. Expected RECEIVED. ${e.message}`
+      });
+    }
+
+    const inspectionStart = await returnStore.saveReturn({
+      db,
+      returnRecord: {
+        ...record,
+        id: record.id,
+        status: STATES.INSPECTION,
+        status_label: 'Under Inspection',
+        inspected_by: req.user.uid,
+        inspected_at: new Date().toISOString(),
+      }
+    });
+
+    // Step 2 — only now may the case leave INSPECTION for a refund or a rejection.
     let nextStatus;
     let refundRecord = null;
 
     if (passed) {
       nextStatus = STATES.REFUND_PROCESSING;
-      // Auto-trigger idempotent refund saga
+      try {
+        assertTransition(STATES.INSPECTION, STATES.REFUND_PROCESSING);
+      } catch (e) {
+        return res.status(409).json({ error: e.message });
+      }
+
+      // Refund saga runs only from INSPECTION → REFUND_PROCESSING.
       try {
         const amount = Number(record.refund_amount) || Number(record.item?.price) || 100;
         refundRecord = await initiateRefund({
@@ -643,6 +676,7 @@ export function createReturnsRouter(db) {
         });
 
         if (refundRecord?.status === 'COMPLETED') {
+          assertTransition(STATES.REFUND_PROCESSING, STATES.COMPLETED);
           nextStatus = STATES.COMPLETED;
         }
       } catch (refundErr) {
@@ -650,12 +684,17 @@ export function createReturnsRouter(db) {
       }
     } else {
       nextStatus = STATES.REJECTED;
+      try {
+        assertTransition(STATES.INSPECTION, STATES.REJECTED);
+      } catch (e) {
+        return res.status(409).json({ error: e.message });
+      }
     }
 
     const updated = await returnStore.saveReturn({
       db,
       returnRecord: {
-        ...record,
+        ...inspectionStart,
         id: record.id,
         status: nextStatus,
         status_label: nextStatus === STATES.COMPLETED ? 'Refund Completed' : (passed ? 'Refund Processing' : 'Rejected at Inspection'),
@@ -700,13 +739,24 @@ export function createReturnsRouter(db) {
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
-    let targetStatus = record.status;
+    const current = normalizeStatus(record.status);
+    let targetStatus = current;
+
     if (carrierStatus === 'PICKED_UP' || carrierStatus === 'IN_TRANSIT') {
-      if (canTransition(record.status, STATES.IN_TRANSIT)) targetStatus = STATES.IN_TRANSIT;
+      targetStatus = STATES.IN_TRANSIT;
     } else if (carrierStatus === 'DELIVERED_TO_WAREHOUSE') {
-      if (canTransition(record.status, STATES.RECEIVED)) targetStatus = STATES.RECEIVED;
+      targetStatus = STATES.RECEIVED;
     } else if (carrierStatus === 'EXCEPTION') {
       targetStatus = STATES.HUMAN_REVIEW;
+    }
+
+    // Only legal transitions are accepted; anything else is refused outright.
+    if (targetStatus !== current) {
+      try {
+        assertTransition(current, targetStatus);
+      } catch (e) {
+        return res.status(409).json({ error: `Carrier event '${carrierStatus}' refused: ${e.message}` });
+      }
     }
 
     const updated = await returnStore.saveReturn({
@@ -715,6 +765,7 @@ export function createReturnsRouter(db) {
         ...record,
         id: record.id,
         status: targetStatus,
+        status_label: targetStatus === current ? record.status_label : targetStatus,
         carrier_tracking: trackingNumber || record.pickup_details?.tracking_number,
         last_carrier_status: carrierStatus,
         last_carrier_update: new Date().toISOString(),
@@ -725,7 +776,7 @@ export function createReturnsRouter(db) {
       returnId: record.id,
       actor: 'carrier_webhook',
       action: 'CARRIER_STATUS_UPDATE',
-      data: { carrierStatus, trackingNumber, from: record.status, to: targetStatus }
+      data: { carrierStatus, trackingNumber, from: current, to: targetStatus }
     });
 
     res.json({ success: true, returnId: record.id, status: targetStatus });
