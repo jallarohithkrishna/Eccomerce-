@@ -20,6 +20,7 @@
  */
 
 import express from 'express';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import multer from 'multer';
 import { verifyIdToken, requireRole } from '../middleware/auth.js';
@@ -31,8 +32,44 @@ import { initiateRefund } from '../returns/refunds.js';
 import { analyzeEvidence, detectMimeType, checkUploadRateLimit } from '../agent/evidence.js';
 import * as returnStore from '../returns/store.js';
 
+/** Header the carrier must send the shared secret in. */
+export const CARRIER_SECRET_HEADER = 'x-carrier-secret';
+
+/** Fallback secret for local/dev/test runs. Never valid in production. */
+const DEV_CARRIER_SECRET = 'dev-carrier-secret-CHANGE-IN-PROD';
+
+/**
+ * Resolve the active carrier webhook secret.
+ * Production requires CARRIER_WEBHOOK_SECRET to be present in the environment
+ * (enforced at router construction, see createReturnsRouter).
+ */
+export function carrierWebhookSecret(env = process.env) {
+  if (env.CARRIER_WEBHOOK_SECRET) return env.CARRIER_WEBHOOK_SECRET;
+  if (env.NODE_ENV === 'production') return null;
+  return DEV_CARRIER_SECRET;
+}
+
+/**
+ * Constant-time secret comparison. Both sides are hashed first so that the
+ * compare is always over two 32-byte buffers (equal length, no length leak).
+ */
+export function secretsMatch(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
+  if (!provided || !expected) return false;
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
 export function createReturnsRouter(db) {
   const router = express.Router();
+
+  // Refuse to boot an unauthenticated carrier webhook into production.
+  if (process.env.NODE_ENV === 'production' && !process.env.CARRIER_WEBHOOK_SECRET) {
+    throw new Error(
+      'CARRIER_WEBHOOK_SECRET must be set in production. Refusing to start the returns API without it.'
+    );
+  }
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -739,7 +776,23 @@ export function createReturnsRouter(db) {
     timestamp:      z.string().optional(),
   });
 
-  router.post('/webhooks/carrier', async (req, res) => {
+  // Shared-secret gate: timing-safe compare, no Firebase account involved.
+  function requireCarrierSecret(req, res, next) {
+    const expected = carrierWebhookSecret();
+    if (!expected) {
+      return res.status(503).json({ error: 'Carrier webhook is not configured (CARRIER_WEBHOOK_SECRET missing)' });
+    }
+    const provided = req.get(CARRIER_SECRET_HEADER);
+    if (!provided) {
+      return res.status(401).json({ error: `Missing ${CARRIER_SECRET_HEADER} header` });
+    }
+    if (!secretsMatch(provided, expected)) {
+      return res.status(403).json({ error: 'Invalid carrier webhook secret' });
+    }
+    next();
+  }
+
+  router.post('/webhooks/carrier', requireCarrierSecret, async (req, res) => {
     const parsed = CarrierWebhookSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid carrier webhook payload', issues: parsed.error.issues });

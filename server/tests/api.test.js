@@ -20,6 +20,7 @@ let baseUrl;
 
 before(async () => {
   process.env.NODE_ENV = 'test';
+  process.env.CARRIER_WEBHOOK_SECRET = process.env.CARRIER_WEBHOOK_SECRET || 'test-carrier-secret';
   await new Promise((resolve) => {
     server = http.createServer(app);
     server.listen(0, '127.0.0.1', () => {
@@ -473,6 +474,7 @@ describe('Warehouse Lifecycle & Carrier Webhook', () => {
     // Carrier webhook sends PICKED_UP
     const webhookRes = await req('/webhooks/carrier', {
       method: 'POST',
+      headers: { 'x-carrier-secret': process.env.CARRIER_WEBHOOK_SECRET },
       body: {
         returnId,
         carrierStatus: 'PICKED_UP',
