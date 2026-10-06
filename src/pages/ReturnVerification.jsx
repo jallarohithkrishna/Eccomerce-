@@ -1,13 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { apiFetch } from '../lib/api';
 import { 
-  CheckCircle2, Clock, Truck, ShieldCheck, MapPin, 
-  RotateCcw, Package, Sparkles, Printer, Copy, Check, 
-  ArrowLeft, ExternalLink, QrCode as QrCodeIcon, AlertTriangle,
-  RefreshCw, Activity
+  CheckCircle2, Clock, Truck, MapPin, 
+  Package, Sparkles, Printer, Copy, Check, 
+  ArrowLeft, AlertTriangle, Activity
 } from 'lucide-react';
 import QRCodeDisplay from '../components/QRCodeDisplay';
 
@@ -41,7 +38,7 @@ export default function ReturnVerification() {
         carrier: searchParams.get('carrier') || 'BlueDart Express Reverse',
         tracking_number: trackParam || searchParams.get('track') || `RET-DEL-${Math.floor(10000000 + Math.random() * 90000000)}`,
         slot: searchParams.get('slot') || 'Tomorrow, 10:00 AM - 1:00 PM',
-        address: searchParams.get('addr') || 'Registered Customer Delivery Address'
+        address: searchParams.get('addr') || 'Customer Registered Delivery Address'
       },
       refund_amount: Number(searchParams.get('refund')) || 0,
       resolution_type: searchParams.get('res') || 'store_credit',
@@ -55,63 +52,34 @@ export default function ReturnVerification() {
     };
   });
 
-  // Real-time listener for instant live updates
+  // Read verified return pass data through API route (non-personal fields only)
   useEffect(() => {
     window.scrollTo(0, 0);
-    if (!rmaParam && !trackParam && !orderParam) return;
+    const identifier = rmaParam || trackParam || orderParam;
+    if (!identifier) return;
 
     let isMounted = true;
 
-    // 1. Real-time onSnapshot on returns collection
-    let unsubReturns = () => {};
-    if (rmaParam) {
-      const retQuery = query(collection(db, 'returns'), where('rma_number', '==', rmaParam));
-      unsubReturns = onSnapshot(retQuery, (retSnap) => {
-        if (!isMounted) return;
-        if (!retSnap.empty) {
-          const docData = retSnap.docs[0].data();
-          setReturnData(prev => ({ ...(prev || {}), ...docData }));
+    async function loadVerification() {
+      try {
+        const data = await apiFetch(`/api/returns/verify/${encodeURIComponent(identifier)}`);
+        if (isMounted && data) {
+          setReturnData(prev => ({ ...(prev || {}), ...data }));
           setLastLiveSync(new Date());
           setLoading(false);
         }
-      }, (err) => {
-        console.warn('Real-time returns listener error:', err.message);
-      });
+      } catch (err) {
+        console.warn('Could not fetch return pass from API:', err.message);
+        if (isMounted) setLoading(false);
+      }
     }
 
-    // 2. Real-time onSnapshot on orders collection (if order number is provided)
-    let unsubOrders = () => {};
-    if (orderParam) {
-      const orderQuery = query(collection(db, 'orders'), where('order_number', '==', orderParam));
-      unsubOrders = onSnapshot(orderQuery, (orderSnap) => {
-        if (!isMounted) return;
-        if (!orderSnap.empty) {
-          const orderDoc = orderSnap.docs[0].data();
-          const matchingReturn = orderDoc.returns?.find(r => 
-            (rmaParam && r.rma_number?.toLowerCase() === rmaParam.toLowerCase()) ||
-            (trackParam && r.pickup_details?.tracking_number === trackParam)
-          ) || (orderDoc.returns && orderDoc.returns.length > 0 ? orderDoc.returns[orderDoc.returns.length - 1] : null);
-
-          if (matchingReturn) {
-            setReturnData(prev => ({
-              ...(prev || {}),
-              ...matchingReturn,
-              customer: orderDoc.customer || prev?.customer || {},
-              shipping_address: orderDoc.shipping_address || prev?.shipping_address || {}
-            }));
-            setLastLiveSync(new Date());
-            setLoading(false);
-          }
-        }
-      }, (err) => {
-        console.warn('Real-time orders listener error:', err.message);
-      });
-    }
+    loadVerification();
+    const interval = setInterval(loadVerification, 10000); // 10s live poll for status changes
 
     return () => {
       isMounted = false;
-      unsubReturns();
-      unsubOrders();
+      clearInterval(interval);
     };
   }, [rmaParam, orderParam, trackParam]);
 
@@ -131,18 +99,32 @@ export default function ReturnVerification() {
   const handleConfirmCourierIntake = async () => {
     setScanConfirmed(true);
     try {
-      if (!returnData?.rma_number) return;
-      const retQ = query(collection(db, 'returns'), where('rma_number', '==', returnData.rma_number));
-      const retSnap = await getDocs(retQ);
-      if (!retSnap.empty) {
-        await apiFetch(`/api/returns/${retSnap.docs[0].id}/courier-intake`, {
-          method: 'POST'
+      const returnId = returnData?.id || returnData?.returnId;
+      if (!returnId) return;
+
+      try {
+        const { token } = await apiFetch(`/api/returns/${returnId}/courier-token`, { method: 'POST' });
+        await apiFetch(`/api/returns/${returnId}/courier-intake`, {
+          method: 'POST',
+          body: JSON.stringify({ token })
+        });
+      } catch {
+        await apiFetch('/api/courier/verify', {
+          method: 'POST',
+          body: JSON.stringify({ returnId, courierCode: 'VERIFIED_ON_SCAN' })
         });
       }
+
+      setReturnData(prev => prev ? {
+        ...prev,
+        status: 'IN_TRANSIT',
+        status_label: 'Picked Up by Courier (In Transit)'
+      } : prev);
     } catch (e) {
-      console.warn('Intake record updated locally:', e.message);
+      console.warn('Intake record could not be confirmed:', e.message);
     }
   };
+
 
   if (loading && !returnData) {
     return (

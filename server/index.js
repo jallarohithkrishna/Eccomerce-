@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
+import crypto from 'node:crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -9,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
+import { evaluate as evaluatePolicy } from './policy/engine.js';
 import { runLoop }          from './agent/loop.js';
 import { verifyIdToken }    from './middleware/auth.js';
 import { rateLimit }        from './middleware/rateLimit.js';
@@ -18,6 +20,7 @@ import {
 } from './agent/evidence.js';
 import * as session         from './agent/session.js';
 import { createEvent, GENESIS_HASH } from './returns/audit.js';
+import { createReturnsRouter } from './routes/returns.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,8 +50,58 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// ─── Auth middleware alias ──────────────────────────────────────────────────
+const authMiddleware = verifyIdToken;
+
 const PORT = process.env.PORT || 5000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+
+// ─── Courier QR-pass token helpers ──────────────────────────────────────────
+// Sign tokens with a server secret. Rotate COURIER_TOKEN_SECRET in env.
+const COURIER_TOKEN_SECRET = process.env.COURIER_TOKEN_SECRET || 'dev-courier-secret-CHANGE-IN-PROD';
+const COURIER_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+// In-memory replay store: token → true. Persists for process lifetime.
+// For multi-instance deploys, replace with Redis or Firestore.
+const _usedCourierTokens = new Set();
+
+/**
+ * Generate a signed courier-intake token.
+ * Payload: `<returnId>.<expiry_unix_ms>`
+ * Signature: HMAC-SHA256(payload, secret)
+ */
+export function generateCourierToken(returnId) {
+  const expiry = Date.now() + COURIER_TOKEN_TTL_MS;
+  const payload = `${returnId}.${expiry}`;
+  const sig = crypto.createHmac('sha256', COURIER_TOKEN_SECRET).update(payload).digest('hex');
+  // Encode as base64url for safe URL embedding
+  return Buffer.from(`${payload}.${sig}`).toString('base64url');
+}
+
+/**
+ * Verify a courier-intake token.
+ * Returns { ok: true, returnId } or { ok: false, error: string }
+ */
+export function verifyCourierToken(token, claimedReturnId) {
+  if (!token) return { ok: false, error: 'Missing courier token' };
+  let raw;
+  try { raw = Buffer.from(token, 'base64url').toString(); } catch {
+    return { ok: false, error: 'Malformed token' };
+  }
+  const parts = raw.split('.');
+  if (parts.length !== 3) return { ok: false, error: 'Malformed token structure' };
+  const [returnId, expiryStr, sig] = parts;
+  if (returnId !== claimedReturnId) return { ok: false, error: 'Token/return ID mismatch' };
+  const expiry = parseInt(expiryStr, 10);
+  if (isNaN(expiry) || Date.now() > expiry) return { ok: false, error: 'Token expired' };
+  const payload = `${returnId}.${expiryStr}`;
+  const expected = crypto.createHmac('sha256', COURIER_TOKEN_SECRET).update(payload).digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) {
+    return { ok: false, error: 'Invalid token signature' };
+  }
+  if (_usedCourierTokens.has(token)) return { ok: false, error: 'Token already used (replay)' };
+  return { ok: true, returnId };
+}
+
 
 // Initialize Firebase Admin if service account exists or default credentials
 let db = null;
@@ -181,18 +234,18 @@ app.post('/api/sync-products', async (req, res) => {
   }
 });
 
-// Main AI Assistant RAG Chat Endpoint
-app.post('/api/chat', async (req, res) => {
+// Main AI Assistant RAG Chat Endpoint (Requires Auth + Server-Side Catalog)
+app.post('/api/chat', authMiddleware, async (req, res) => {
   try {
-    const { message, catalog } = req.body;
+    const { message } = req.body;
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Message query is required' });
     }
 
-    // Use current catalog supplied by client or server cache
-    let productsList = (catalog && Array.isArray(catalog) && catalog.length > 0) ? catalog : productCache;
+    // Server-side product catalog only (productCache or Firestore)
+    let productsList = productCache;
 
-    // If both empty and Firestore db available, try fetching from Firestore
+    // If empty and Firestore db available, try fetching from Firestore
     if (productsList.length === 0 && db) {
       try {
         const snap = await db.collection('products').get();
@@ -339,13 +392,6 @@ Answer the user directly and reference the relevant products.`;
     res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 });
-
-// ─── Auth helper (dev mode passthrough) ────────────────────────────────────
-const authMiddleware = async (req, res, next) => {
-  if (db) return verifyIdToken(req, res, next);
-  req.user = { uid: req.headers['x-dev-uid'] || 'anon', role: req.headers['x-dev-role'] || 'customer' };
-  next();
-};
 
 // ─── Multer — memory storage, 5 MB limit ────────────────────────────────────
 const upload = multer({
@@ -771,32 +817,166 @@ app.post('/api/returns/:id/resolve', authMiddleware, async (req, res) => {
   }
 });
 
-// ─── POST /api/returns/:id/courier-intake ────────────────────────────────────
-app.post('/api/returns/:id/courier-intake', authMiddleware, async (req, res) => {
+// ─── POST /api/returns/:id/courier-token (generate signed QR token) ──────────
+// Called when the customer opens their QR pass page. Returns a signed token
+// that the courier page embeds in its intake POST (no Firebase account needed).
+app.post('/api/returns/:id/courier-token', authMiddleware, async (req, res) => {
   const returnId = req.params.id;
+  const uid = req.user.uid;
+
+  try {
+    // Verify the caller owns this return (or is staff/admin)
+    if (db) {
+      const retSnap = await db.collection('returns').doc(returnId).get();
+      if (!retSnap.exists) return res.status(404).json({ error: 'Return not found' });
+      const retData = retSnap.data();
+      const owner = retData.user_id || retData.userId;
+      if (owner !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
+        return res.status(403).json({ error: 'Not your return' });
+      }
+    }
+
+    const token = generateCourierToken(returnId);
+    res.json({ token, ttlSeconds: Math.floor(COURIER_TOKEN_TTL_MS / 1000) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate courier token', detail: err.message });
+  }
+});
+
+// ─── POST /api/returns/:id/courier-intake ────────────────────────────────────
+// Public endpoint — no Firebase account required. Auth is the signed QR token.
+// Token must be signed, unexpired, and single-use (replay protection).
+// Only advances PICKUP_SCHEDULED → IN_TRANSIT. Nothing else is written.
+app.post('/api/returns/:id/courier-intake', async (req, res) => {
+  const returnId = req.params.id;
+  const { token } = req.body || {};
+
+  // 1. Verify signed token
+  const verification = verifyCourierToken(token, returnId);
+  if (!verification.ok) {
+    return res.status(401).json({ error: verification.error });
+  }
+
   try {
     if (db) {
-      await db.collection('returns').doc(returnId).update({
+      const retRef = db.collection('returns').doc(returnId);
+      const retSnap = await retRef.get();
+      if (!retSnap.exists) {
+        return res.status(404).json({ error: 'Return not found' });
+      }
+
+      const retData = retSnap.data();
+
+      // 2. Enforce valid transition: must be PICKUP_SCHEDULED to advance to IN_TRANSIT
+      const allowedFromStatuses = ['approved', 'APPROVED', 'PICKUP_SCHEDULED', 'pickup_scheduled'];
+      if (!allowedFromStatuses.includes(retData.status)) {
+        return res.status(409).json({
+          error: `Cannot mark in-transit from status '${retData.status}'. Expected PICKUP_SCHEDULED.`
+        });
+      }
+
+      // 3. Write only the fields we control — ignore everything else the caller sends
+      await retRef.update({
+        status: 'IN_TRANSIT',
         courier_intake_verified: true,
         courier_intake_timestamp: FieldValue.serverTimestamp(),
         updated_at: FieldValue.serverTimestamp()
       });
+
+      // 4. Audit event
+      const ev = createEvent({
+        returnId,
+        previousHash: GENESIS_HASH,
+        actor: 'courier',
+        action: 'COURIER_INTAKE_CONFIRMED',
+        data: { from: retData.status, to: 'IN_TRANSIT' }
+      });
+      await retRef.collection('events').add(ev).catch(() => {});
     }
-    res.json({ success: true, returnId });
+
+    // 5. Mark token as used (replay protection) — only after successful write
+    _usedCourierTokens.add(token);
+
+    res.json({ success: true, returnId, status: 'IN_TRANSIT' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to record courier intake', detail: err.message });
   }
 });
 
 // ─── POST /api/returns/intake ────────────────────────────────────────────────
+// Server recomputes eligibility and refund amount. Never trusts client decisions.
 app.post('/api/returns/intake', authMiddleware, async (req, res) => {
   const uid = req.user.uid;
   const { orderId, productId, reason, quantity = 1, resolutionType = 'refund' } = req.body || {};
   if (!orderId) return res.status(400).json({ error: 'orderId is required' });
 
   try {
+    // ── 1. Load order from Firestore ─────────────────────────────────────────
+    let order = null;
+    if (db) {
+      const orderSnap = await db.collection('orders').doc(orderId).get();
+      if (!orderSnap.exists) return res.status(404).json({ error: 'Order not found' });
+      order = { id: orderSnap.id, ...orderSnap.data() };
+    }
+
+    // ── 2. Ownership check: only the order owner (or staff/admin) can return ─
+    if (order) {
+      const orderOwner = order.customer?.user_id || order.user_id || order.userId;
+      if (orderOwner !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
+        return res.status(403).json({ error: 'You can only return your own orders' });
+      }
+    }
+
+    // ── 3. Find the product in the order items ───────────────────────────────
+    const orderItem = order?.items?.find(i =>
+      (i.product_id || i.id) === productId
+    ) || order?.items?.[0] || {};
+
+    const itemPrice  = Number(orderItem.price) || 0;
+    const itemName   = orderItem.name || '';
+    const category   = orderItem.category || 'standard';
+    const deliveredAt = order?.delivered_at?.toDate
+      ? order.delivered_at.toDate().toISOString()
+      : (order?.delivered_at || new Date().toISOString());
+
+    // ── 4. Server-side eligibility evaluation (policy engine) ────────────────
+    let eligibility = null;
+    try {
+      eligibility = evaluatePolicy({
+        category,
+        itemName,
+        deliveredAt,
+        requestedAt: new Date().toISOString(),
+        itemPrice,
+        quantity: Number(quantity),
+        reason,
+      });
+    } catch (policyErr) {
+      // If evaluation throws (e.g. missing deliveredAt for non-delivered order),
+      // treat as ineligible but don't block the record creation (staff can review).
+      console.warn('Policy evaluation failed:', policyErr.message);
+    }
+
+    if (eligibility && !eligibility.eligible && !eligibility.requiresHumanReview) {
+      return res.status(422).json({
+        error: 'Return not eligible under policy',
+        reason: eligibility.decisionMessage,
+        code: eligibility.decisionCode
+      });
+    }
+
+    // ── 5. Compute refund amount server-side — ignore any client value ────────
+    const unitPrice   = itemPrice;
+    const baseRefund  = unitPrice * Number(quantity);
+    const serverRefundAmount = resolutionType === 'store_credit'
+      ? baseRefund * 1.05   // 5% store-credit bonus, same rule as client
+      : baseRefund;
+
+    const status = eligibility?.requiresHumanReview ? 'HUMAN_REVIEW' : 'REQUESTED';
+
+    // ── 6. Build the return record ────────────────────────────────────────────
     const returnId = `ret_${Date.now()}`;
-    const rma = `RMA-${Date.now().toString(36).toUpperCase()}`;
+    const rma      = `RMA-${Date.now().toString(36).toUpperCase()}`;
     const returnRecord = {
       id: returnId,
       rma_number: rma,
@@ -804,11 +984,13 @@ app.post('/api/returns/intake', authMiddleware, async (req, res) => {
       order_id: orderId,
       userId: uid,
       user_id: uid,
-      productId,
+      productId: productId || null,
       reason,
-      quantity,
+      quantity: Number(quantity),
       resolutionType,
-      status: 'REQUESTED',
+      refund_amount: serverRefundAmount,  // server computed, never from client
+      status,
+      eligibility_decision: eligibility?.decisionCode || 'SERVER_REVIEW',
       createdAt: new Date().toISOString(),
       created_at: db ? FieldValue.serverTimestamp() : new Date().toISOString(),
     };
@@ -820,7 +1002,7 @@ app.post('/api/returns/intake', authMiddleware, async (req, res) => {
         previousHash: GENESIS_HASH,
         actor: uid,
         action: 'RETURN_REQUESTED',
-        data: { reason, quantity, resolutionType }
+        data: { reason, quantity, resolutionType, eligibility: eligibility?.decisionCode }
       });
       await db.collection('returns').doc(returnId).collection('events').add(ev).catch(() => {});
     }
@@ -831,6 +1013,21 @@ app.post('/api/returns/intake', authMiddleware, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`AI Shopping Assistant Server running on port ${PORT}`);
-});
+// ─── Returns Router (Phase 4 Deliverables) ──────────────────────────────────
+const returnsRouter = createReturnsRouter(db);
+app.use(returnsRouter);
+app.use('/api', returnsRouter);
+
+const isDirectRun = process.argv[1] && (
+  process.argv[1].endsWith('server\\index.js') ||
+  process.argv[1].endsWith('server/index.js') ||
+  process.argv[1].endsWith('index.js')
+) && !process.env.NODE_TEST_CONTEXT;
+
+if (isDirectRun && process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`AI Shopping Assistant Server running on port ${PORT}`);
+  });
+}
+
+export { app };

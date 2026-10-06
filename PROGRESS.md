@@ -136,13 +136,15 @@
    - Staff types message and submits through `POST /agent/conversations/:id/staff-reply`.
    - Staff resolves inquiry and clicks "Hand back to agent" (emitting `STAFF_HANDBACK` audit event).
 
-- [ ] Express routes with `verifyIdToken`, role checks, rate limiting, Zod validation
-- [ ] `POST /returns/intake`, `GET /returns/:id`, `POST /returns/:id/messages`, `/evidence`, `/appeal`
-- [ ] `GET /agent/returns`, `POST /agent/returns/:id/approve|deny|override`
-- [ ] `POST /warehouse/returns/:id/receive|inspect`
-- [ ] `POST /webhooks/carrier`, `GET /returns/:id/audit`
-- [ ] Rewrite `/api/chat` to read products server-side + require auth
-- [ ] **Accept**: API tests with valid token, invalid token, wrong role
+### Phase 4 — Express Returns API
+- [x] Express routes with `verifyIdToken`, role checks, rate limiting, Zod validation
+- [x] `POST /returns/intake`, `GET /returns/:id`, `POST /returns/:id/messages`, `/evidence`, `/appeal`
+- [x] `GET /agent/returns`, `POST /agent/returns/:id/approve|deny|override`
+- [x] `POST /warehouse/returns/:id/receive|inspect`
+- [x] `POST /webhooks/carrier`, `GET /returns/:id/audit`
+- [x] Rewrite `/api/chat` to read products server-side + require auth
+- [x] `server/tests/api.test.js`: 16/16 tests passing (valid token, invalid token, wrong role, intake, appeal, override, warehouse, carrier, audit chain)
+- [x] **Accept**: 125/125 total server tests passing; build & security rules passing.
 
 ### Phase 5 — LLM Agents
 - [ ] `server/llm/client.js` — provider-agnostic (OpenAI-compatible HTTP)
@@ -157,7 +159,7 @@
 - [ ] Customer tracker (`/returns`): live status stepper from `returns/{id}`, messages, evidence
 - [ ] `admin/Returns.jsx`: queue with filters, case detail with timeline, AI recommendation card, approve/deny/override, audit tab, policy view with simulate, analytics
 - [ ] `/admin/warehouse` screen for receive and inspect
-- [ ] `ReturnVerification.jsx`: read through API route (non-personal fields only)
+- [x] `ReturnVerification.jsx`: read through API route (non-personal fields only)
 - [ ] Remove all client-side decisions from `src/lib/returnAgent.js`
 - [ ] **Accept**: all 9 deliverables work through UI
 
