@@ -14,8 +14,12 @@
 import { strict as assert } from 'assert';
 import { describe, it, before, after, beforeEach } from 'node:test';
 import http from 'node:http';
+import { createHmac } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { app } from '../index.js';
+import { app, generateCourierToken, verifyCourierToken } from '../index.js';
 import {
   createReturnsRouter,
   secretsMatch,
@@ -25,6 +29,9 @@ import {
 import * as returnStore from '../returns/store.js';
 import { generateRma, RMA_PATTERN, RMA_RANDOM_LENGTH } from '../returns/rma.js';
 import { _clearWindows } from '../middleware/rateLimit.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SERVER_DIR = join(__dirname, '..');
 
 const SECRET = 'unit-test-carrier-secret';
 
@@ -275,5 +282,229 @@ describe('Public return verification pass', () => {
     // The bucket is per-IP, so nothing about the record is revealed by the 429.
     const body = JSON.stringify(throttled.res.data);
     assert.equal(body.includes('rma_number'), false);
+  });
+});
+
+// ─── 6. Courier intake token: signed, expiring, single-use ──────────────────
+
+const COURIER_SECRET = process.env.COURIER_TOKEN_SECRET || 'dev-courier-secret-CHANGE-IN-PROD';
+
+function forgeToken(returnId, expiry, { sigOverride } = {}) {
+  const payload = `${returnId}.${expiry}`;
+  const sig = sigOverride !== undefined
+    ? sigOverride
+    : createHmac('sha256', COURIER_SECRET).update(payload).digest('hex');
+  return Buffer.from(`${payload}.${sig}`).toString('base64url');
+}
+
+async function stageReturn(uid, orderId, status) {
+  const record = await createReturn(uid, orderId);
+  await returnStore.saveReturn({ returnRecord: { id: record.id, status } });
+  return record;
+}
+
+describe('Courier intake token', () => {
+  it('SEC11: courier-intake refuses anything that is not a well-formed token', async () => {
+    const record = await stageReturn('cust-ct1', 'ord_ct1', 'PICKUP_SCHEDULED');
+    const endpoint = `/api/returns/${record.id}/courier-intake`;
+
+    const junk = [
+      undefined, null, '', 0, 12345, true, {}, [],
+      'not-a-token',
+      Buffer.from('only.two').toString('base64url'),
+      Buffer.from(`${record.id}.${Date.now() + 60000}`).toString('base64url'),
+    ];
+    for (const token of junk) {
+      const res = await req(endpoint, { method: 'POST', body: { token } });
+      assert.equal(res.status, 401, `${JSON.stringify(token)} must be refused`);
+    }
+  });
+
+  it('SEC12: malformed or tampered signatures are 401 — never a crash', async () => {
+    const record = await stageReturn('cust-ct2', 'ord_ct2', 'PICKUP_SCHEDULED');
+    const endpoint = `/api/returns/${record.id}/courier-intake`;
+    const future = Date.now() + 60000;
+
+    const bad = [
+      forgeToken(record.id, future, { sigOverride: 'deadbeef' }),            // too short
+      forgeToken(record.id, future, { sigOverride: 'zz'.repeat(32) }),        // non-hex
+      forgeToken(record.id, future, { sigOverride: '' }),                     // empty
+      forgeToken(record.id, 'not-a-number'),                                  // non-numeric expiry
+      forgeToken('some-other-return', future),                                // id mismatch
+    ];
+
+    for (const token of bad) {
+      const res = await req(endpoint, { method: 'POST', body: { token } });
+      assert.equal(res.status, 401, `token must be refused, got ${res.status}: ${JSON.stringify(res.data)}`);
+    }
+
+    // Flip one character of a real signature.
+    const good = Buffer.from(generateCourierToken(record.id), 'base64url').toString();
+    const [rid, exp, sig] = good.split('.');
+    const tampered = Buffer.from(
+      `${rid}.${exp}.${sig[0] === '0' ? '1' : '0'}${sig.slice(1)}`
+    ).toString('base64url');
+    const res = await req(endpoint, { method: 'POST', body: { token: tampered } });
+    assert.equal(res.status, 401);
+
+    const after = await returnStore.getReturn({ db: null, identifier: record.id });
+    assert.equal(after.status, 'PICKUP_SCHEDULED', 'a rejected token must not write anything');
+  });
+
+  it('SEC13: an expired token is refused', async () => {
+    const record = await stageReturn('cust-ct3', 'ord_ct3', 'PICKUP_SCHEDULED');
+    const expired = forgeToken(record.id, Date.now() - 1000);
+
+    const res = await req(`/api/returns/${record.id}/courier-intake`, {
+      method: 'POST',
+      body: { token: expired },
+    });
+    assert.equal(res.status, 401);
+    assert.match(res.data.error, /expired/i);
+
+    const after = await returnStore.getReturn({ db: null, identifier: record.id });
+    assert.equal(after.status, 'PICKUP_SCHEDULED');
+  });
+
+  it('SEC14: even a valid token only moves PICKUP_SCHEDULED → IN_TRANSIT', async () => {
+    const token = generateCourierToken('ret-some-id'); // valid signature, wrong state below
+
+    for (const status of ['REQUESTED', 'RECEIVED', 'INSPECTION', 'COMPLETED', 'REJECTED']) {
+      const record = await stageReturn(`cust-${status}`, `ord_${status}`, status);
+      const scoped = generateCourierToken(record.id);
+      const res = await req(`/api/returns/${record.id}/courier-intake`, {
+        method: 'POST',
+        body: { token: scoped },
+      });
+      assert.equal(res.status, 409, `${status} must not be reachable via courier intake`);
+      const after = await returnStore.getReturn({ db: null, identifier: record.id });
+      assert.equal(after.status, status, `${status} must remain untouched`);
+    }
+    assert.ok(token.length > 0);
+  });
+
+  it('SEC15: a valid token advances the case exactly once (replay rejected)', async () => {
+    const record = await stageReturn('cust-ct5', 'ord_ct5', 'PICKUP_SCHEDULED');
+    const endpoint = `/api/returns/${record.id}/courier-intake`;
+    const token = generateCourierToken(record.id);
+
+    const before = await returnStore.getReturn({ db: null, identifier: record.id });
+    const refundBefore = before.refund_amount;
+
+    const first = await req(endpoint, { method: 'POST', body: { token } });
+    assert.equal(first.status, 200, JSON.stringify(first.data));
+    assert.equal(first.data.status, 'IN_TRANSIT');
+
+    const stored = await returnStore.getReturn({ db: null, identifier: record.id });
+    assert.equal(stored.status, 'IN_TRANSIT');
+    assert.equal(stored.courier_intake_verified, true);
+    assert.equal(
+      stored.refund_amount,
+      refundBefore,
+      'courier intake must never rewrite the refund amount'
+    );
+
+    const replay = await req(endpoint, { method: 'POST', body: { token } });
+    assert.equal(replay.status, 401);
+    assert.match(replay.data.error, /replay|already used/i);
+    assert.equal(
+      (await returnStore.getReturn({ db: null, identifier: record.id })).status,
+      'IN_TRANSIT'
+    );
+  });
+
+  it('SEC16: generating a token requires authentication and ownership', async () => {
+    const record = await stageReturn('cust-ct6', 'ord_ct6', 'PICKUP_SCHEDULED');
+    const endpoint = `/api/returns/${record.id}/courier-token`;
+
+    const anon = await req(endpoint, { method: 'POST' });
+    assert.equal(anon.status, 401, 'anonymous callers must not mint courier tokens');
+
+    const stranger = await req(endpoint, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'someone-else', 'x-dev-role': 'customer' },
+    });
+    assert.equal(stranger.status, 403, 'non-owners must not mint courier tokens');
+
+    const owner = await req(endpoint, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-ct6', 'x-dev-role': 'customer' },
+    });
+    assert.equal(owner.status, 200, JSON.stringify(owner.data));
+    assert.ok(owner.data.token && owner.data.ttlSeconds > 0);
+    assert.equal(
+      verifyCourierToken(owner.data.token, record.id).ok,
+      true,
+      'the minted token must verify against its own return id'
+    );
+  });
+});
+
+// ─── 7. Route inventory: no endpoint defined twice ──────────────────────────
+
+function collectRouteDefinitions() {
+  const sources = [{ path: join(SERVER_DIR, 'index.js'), isRouter: false }];
+  const routesDir = join(SERVER_DIR, 'routes');
+  for (const f of readdirSync(routesDir)) {
+    sources.push({ path: join(routesDir, f), isRouter: true });
+  }
+
+  const seen = new Map();
+  const re = /(?:app|router)\.(get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g;
+
+  for (const { path, isRouter } of sources) {
+    const lines = readFileSync(path, 'utf8').split(/\r?\n/);
+    lines.forEach((line, i) => {
+      let m;
+      re.lastIndex = 0;
+      while ((m = re.exec(line))) {
+        const method = m[1].toUpperCase();
+        const raw = m[2];
+        for (const effective of isRouter ? [raw, '/api' + raw] : [raw]) {
+          // Routers are mounted both bare and behind /api — collapse that.
+          const norm = effective.replace(/^\/api(?=\/|$)/, '') || '/';
+          const key = `${method} ${norm}`;
+          if (!seen.has(key)) seen.set(key, new Set());
+          seen.get(key).add(`${path.replace(SERVER_DIR + '/', '')}:${i + 1}`);
+        }
+      }
+    });
+  }
+  return seen;
+}
+
+describe('Route inventory', () => {
+  it('SEC17: no HTTP method+path is defined more than once', () => {
+    const groups = collectRouteDefinitions();
+    assert.ok(groups.size >= 20, `expected a real route table, saw ${groups.size}`);
+
+    const dupes = [...groups.entries()].filter(([, locs]) => locs.size > 1);
+    assert.deepEqual(
+      dupes.map(([k]) => k),
+      [],
+      `duplicate route definitions:\n${dupes.map(([k, v]) => `${k} -> ${[...v].join(', ')}`).join('\n')}`
+    );
+
+    // The legacy, shadowing copy of intake must be gone; exactly one remains.
+    const intake = groups.get('POST /returns/intake');
+    assert.ok(intake, 'the canonical intake route must exist');
+    assert.equal(intake.size, 1);
+    assert.ok(
+      [...intake][0].endsWith('routes/returns.js') || [...intake][0].includes('routes\\returns.js'),
+      'intake must live in the returns router, not the legacy index.js copy'
+    );
+  });
+
+  it('SEC18: this security suite is part of `npm test`', () => {
+    const pkg = JSON.parse(readFileSync(join(SERVER_DIR, 'package.json'), 'utf8'));
+    const script = pkg.scripts && pkg.scripts.test;
+    assert.ok(script, 'server/package.json must define a test script');
+    assert.ok(
+      script.includes('tests/security.test.js'),
+      `\`npm test\` must run tests/security.test.js, got: ${script}`
+    );
+    for (const other of ['tests/api.test.js', 'tests/orchestrator.test.js']) {
+      assert.ok(script.includes(other), `\`npm test\` must still run ${other}`);
+    }
   });
 });

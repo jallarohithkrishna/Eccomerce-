@@ -10,7 +10,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
-import { evaluate as evaluatePolicy } from './policy/engine.js';
 import { runLoop }          from './agent/loop.js';
 import { verifyIdToken }    from './middleware/auth.js';
 import { rateLimit }        from './middleware/rateLimit.js';
@@ -80,11 +79,25 @@ export function generateCourierToken(returnId) {
 }
 
 /**
+ * Constant-time hex compare of two SHA-256 digests.
+ * Guards against malformed / wrong-length signatures blowing up (or being
+ * compared byte-for-byte) inside crypto.timingSafeEqual.
+ */
+function signatureMatches(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
+  if (!/^[0-9a-f]{64}$/i.test(provided) || !/^[0-9a-f]{64}$/i.test(expected)) return false;
+  return crypto.timingSafeEqual(
+    Buffer.from(provided.toLowerCase(), 'utf8'),
+    Buffer.from(expected.toLowerCase(), 'utf8')
+  );
+}
+
+/**
  * Verify a courier-intake token.
  * Returns { ok: true, returnId } or { ok: false, error: string }
  */
 export function verifyCourierToken(token, claimedReturnId) {
-  if (!token) return { ok: false, error: 'Missing courier token' };
+  if (!token || typeof token !== 'string') return { ok: false, error: 'Missing courier token' };
   let raw;
   try { raw = Buffer.from(token, 'base64url').toString(); } catch {
     return { ok: false, error: 'Malformed token' };
@@ -97,7 +110,7 @@ export function verifyCourierToken(token, claimedReturnId) {
   if (isNaN(expiry) || Date.now() > expiry) return { ok: false, error: 'Token expired' };
   const payload = `${returnId}.${expiryStr}`;
   const expected = crypto.createHmac('sha256', COURIER_TOKEN_SECRET).update(payload).digest('hex');
-  if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) {
+  if (!signatureMatches(sig, expected)) {
     return { ok: false, error: 'Invalid token signature' };
   }
   if (_usedCourierTokens.has(token)) return { ok: false, error: 'Token already used (replay)' };
@@ -902,116 +915,6 @@ app.post('/api/returns/:id/courier-intake', async (req, res) => {
       return res.status(409).json({ error: err.message });
     }
     res.status(500).json({ error: 'Failed to record courier intake', detail: err.message });
-  }
-});
-
-// ─── POST /api/returns/intake ────────────────────────────────────────────────
-// Server recomputes eligibility and refund amount. Never trusts client decisions.
-app.post('/api/returns/intake', authMiddleware, async (req, res) => {
-  const uid = req.user.uid;
-  const { orderId, productId, reason, quantity = 1, resolutionType = 'refund' } = req.body || {};
-  if (!orderId) return res.status(400).json({ error: 'orderId is required' });
-
-  try {
-    // ── 1. Load order from Firestore ─────────────────────────────────────────
-    let order = null;
-    if (db) {
-      const orderSnap = await db.collection('orders').doc(orderId).get();
-      if (!orderSnap.exists) return res.status(404).json({ error: 'Order not found' });
-      order = { id: orderSnap.id, ...orderSnap.data() };
-    }
-
-    // ── 2. Ownership check: only the order owner (or staff/admin) can return ─
-    if (order) {
-      const orderOwner = order.customer?.user_id || order.user_id || order.userId;
-      if (orderOwner !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
-        return res.status(403).json({ error: 'You can only return your own orders' });
-      }
-    }
-
-    // ── 3. Find the product in the order items ───────────────────────────────
-    const orderItem = order?.items?.find(i =>
-      (i.product_id || i.id) === productId
-    ) || order?.items?.[0] || {};
-
-    const itemPrice  = Number(orderItem.price) || 0;
-    const itemName   = orderItem.name || '';
-    const category   = orderItem.category || 'standard';
-    const deliveredAt = order?.delivered_at?.toDate
-      ? order.delivered_at.toDate().toISOString()
-      : (order?.delivered_at || new Date().toISOString());
-
-    // ── 4. Server-side eligibility evaluation (policy engine) ────────────────
-    let eligibility = null;
-    try {
-      eligibility = evaluatePolicy({
-        category,
-        itemName,
-        deliveredAt,
-        requestedAt: new Date().toISOString(),
-        itemPrice,
-        quantity: Number(quantity),
-        reason,
-      });
-    } catch (policyErr) {
-      // If evaluation throws (e.g. missing deliveredAt for non-delivered order),
-      // treat as ineligible but don't block the record creation (staff can review).
-      console.warn('Policy evaluation failed:', policyErr.message);
-    }
-
-    if (eligibility && !eligibility.eligible && !eligibility.requiresHumanReview) {
-      return res.status(422).json({
-        error: 'Return not eligible under policy',
-        reason: eligibility.decisionMessage,
-        code: eligibility.decisionCode
-      });
-    }
-
-    // ── 5. Compute refund amount server-side — ignore any client value ────────
-    const unitPrice   = itemPrice;
-    const baseRefund  = unitPrice * Number(quantity);
-    const serverRefundAmount = resolutionType === 'store_credit'
-      ? baseRefund * 1.05   // 5% store-credit bonus, same rule as client
-      : baseRefund;
-
-    const status = eligibility?.requiresHumanReview ? 'HUMAN_REVIEW' : 'REQUESTED';
-
-    // ── 6. Build the return record ────────────────────────────────────────────
-    const returnId = `ret_${Date.now()}`;
-    const rma      = await returnStore.generateUniqueRma({ db });
-    const returnRecord = {
-      id: returnId,
-      rma_number: rma,
-      orderId,
-      order_id: orderId,
-      userId: uid,
-      user_id: uid,
-      productId: productId || null,
-      reason,
-      quantity: Number(quantity),
-      resolutionType,
-      refund_amount: serverRefundAmount,  // server computed, never from client
-      status,
-      eligibility_decision: eligibility?.decisionCode || 'SERVER_REVIEW',
-      createdAt: new Date().toISOString(),
-      created_at: db ? FieldValue.serverTimestamp() : new Date().toISOString(),
-    };
-
-    if (db) {
-      await db.collection('returns').doc(returnId).set(returnRecord);
-      const ev = createEvent({
-        returnId,
-        previousHash: GENESIS_HASH,
-        actor: uid,
-        action: 'RETURN_REQUESTED',
-        data: { reason, quantity, resolutionType, eligibility: eligibility?.decisionCode }
-      });
-      await db.collection('returns').doc(returnId).collection('events').add(ev).catch(() => {});
-    }
-
-    res.status(201).json({ success: true, returnRecord });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to process return intake', detail: err.message });
   }
 });
 

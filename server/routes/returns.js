@@ -123,9 +123,17 @@ export function createReturnsRouter(db) {
       try {
         // Find order
         let order = null;
+        let orderLookupRan = false;
         if (shouldSync(db)) {
+          orderLookupRan = true;
           const snap = await db.collection('orders').doc(orderId).get();
           if (snap.exists) order = { id: snap.id, ...snap.data() };
+        }
+
+        // A return may only be filed against a real order (kept from the
+        // original /api/returns/intake contract).
+        if (orderLookupRan && !order) {
+          return res.status(404).json({ error: 'Order not found' });
         }
 
         // Ownership verification if order found
