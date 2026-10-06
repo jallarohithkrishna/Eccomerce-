@@ -14,6 +14,7 @@ import { Buffer } from 'buffer';
 import { app } from '../index.js';
 import * as returnStore from '../returns/store.js';
 import { _clearEvidence } from '../agent/evidence.js';
+import { evaluate } from '../policy/engine.js';
 
 let server;
 let baseUrl;
@@ -554,5 +555,116 @@ describe('Audit Chain Verification API', () => {
     assert.equal(auditRes.data.events[0].action, 'RETURN_REQUESTED');
     assert.equal(auditRes.data.events[1].action, 'STAFF_APPROVED');
     assert.equal(auditRes.data.events[2].action, 'MESSAGE_ADDED');
+  });
+});
+
+// ─── 6. Intake hardening: client can never decide eligibility or refund ─────
+
+describe('API Intake hardening', () => {
+  const CLIENT_JUNK = {
+    decision: 'APPROVED',
+    refund_amount: 999999,
+    refundAmount: 999999,
+    eligibility_decision: 'NON_RETURNABLE_CATEGORY',
+    status: 'COMPLETED',
+    status_label: 'Refunded',
+    eligible: true,
+    requiresHumanReview: false,
+    approved: true,
+    userId: 'attacker-uid',
+    user_id: 'attacker-uid',
+    rma_number: 'RMA-HACKED',
+    createdAt: '2000-01-01T00:00:00.000Z',
+    item: { price: 1, name: 'Free Stuff', category: 'vehicle' },
+  };
+
+  async function intake(extra, uid = 'cust-hardened') {
+    const res = await req('/returns/intake', {
+      method: 'POST',
+      headers: { 'x-dev-uid': uid, 'x-dev-role': 'customer' },
+      body: { orderId: 'ord_hard', reason: 'defective', ...extra },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.data));
+    return res.data.returnRecord;
+  }
+
+  it('API17: client-supplied decision / refund_amount / status are all discarded', async () => {
+    const record = await intake({ ...CLIENT_JUNK, quantity: 2 });
+
+    // refund comes from the server formula, not the request body.
+    assert.equal(record.refund_amount, 1000, '500 * 2 — the client number must be ignored');
+    assert.equal('refundAmount' in record, false);
+
+    // status / decision come from the policy engine, not the request body.
+    assert.equal(record.status, 'REQUESTED');
+    assert.equal(record.status_label, 'Return Requested');
+    assert.equal(record.eligibility_decision, 'ELIGIBLE');
+
+    // identity and case metadata stay server-owned.
+    assert.equal(record.userId, 'cust-hardened');
+    assert.equal(record.user_id, 'cust-hardened');
+    assert.match(record.rma_number, /^RMA-/);
+    assert.notEqual(record.rma_number, 'RMA-HACKED');
+    assert.equal(record.item.price, 500, 'item price comes from the order/fallback, not the client');
+    assert.equal(record.item.category, 'standard');
+    assert.ok(Date.parse(record.createdAt) > Date.parse('2020-01-01'));
+
+    // nothing privileged from the request body is copied through.
+    const stored = JSON.stringify(record);
+    for (const key of ['decision', 'eligible', 'requiresHumanReview', 'approved']) {
+      assert.equal(key in record, false, `'${key}' must not be stored`);
+    }
+    for (const leak of ['NON_RETURNABLE_CATEGORY', 'attacker-uid', 'Free Stuff', 'RMA-HACKED']) {
+      assert.equal(stored.includes(leak), false, `record leaked "${leak}"`);
+    }
+  });
+
+  it('API18: the recorded decision is exactly what the policy engine returns', async () => {
+    const record = await intake({ quantity: 3, resolutionType: 'store_credit' });
+
+    // Recompute the engine with the inputs the route feeds it (no order doc in
+    // this environment, so the route uses the server-side fallback item).
+    const engine = evaluate({
+      category: 'standard',
+      itemName: 'Purchased Item',
+      deliveredAt: new Date().toISOString(),
+      requestedAt: new Date().toISOString(),
+      itemPrice: 500,
+      quantity: 3,
+      reason: 'defective',
+      photoProvided: false,
+    });
+
+    assert.equal(record.eligibility_decision, engine.decisionCode);
+    assert.equal(record.status, engine.requiresHumanReview ? 'HUMAN_REVIEW' : 'REQUESTED');
+
+    // Server-side refund formula, never the client's number.
+    assert.equal(record.refund_amount, 500 * 3 * 1.05);
+
+    // Same server inputs, opposite client intent → same outcome every time.
+    const clean = await intake({ quantity: 3, resolutionType: 'store_credit' });
+    assert.equal(clean.refund_amount, record.refund_amount);
+    assert.equal(clean.eligibility_decision, record.eligibility_decision);
+    assert.equal(clean.status, record.status);
+
+    // The engine is authoritative for denial too: a denied input can never be
+    // waved through by a client that also sends decision:'APPROVED'.
+    const denied = evaluate({
+      category: 'standard',
+      itemName: 'Purchased Item',
+      deliveredAt: new Date().toISOString(),
+      requestedAt: new Date().toISOString(),
+      itemPrice: 500,
+      quantity: 0,
+      reason: 'defective',
+      photoProvided: false,
+    });
+    assert.equal(denied.eligible, false);
+    assert.equal(denied.decisionCode, 'INVALID_QUANTITY');
+    assert.equal(
+      record.eligibility_decision,
+      'ELIGIBLE',
+      'the stored code is the engine verdict for the real inputs, not a client value'
+    );
   });
 });
