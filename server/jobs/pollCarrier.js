@@ -5,8 +5,10 @@
  * advances the state machine when a DELIVERED event is received, and records
  * an audit event per transition.
  *
- * In production, replace `_pollCarrierApi` with real carrier API calls.
+ * All state changes are validated strictly through `assertTransition(STATES.IN_TRANSIT, STATES.RECEIVED)`.
+ * Queries returns by status with limit(50).
  * Triggered by the scheduler (ENABLE_JOBS=1) every 15 minutes.
+ * Accepts an injected clock for deterministic time testing.
  */
 
 import * as returnStore from '../returns/store.js';
@@ -18,14 +20,19 @@ import { emitTrackingEvent } from '../services/carrier.js';
  * Poll carrier for all IN_TRANSIT returns and advance to RECEIVED when delivered.
  *
  * @param {object|null} db
+ * @param {object} [options]
+ * @param {function} [options.clock]
+ * @param {boolean} [options.mockAlwaysDeliver]
  * @returns {Promise<{ advanced: string[], skipped: string[], errors: string[] }>}
  */
-export async function pollCarrier(db) {
+export async function pollCarrier(db, { clock = Date.now, mockAlwaysDeliver } = {}) {
   const results = { advanced: [], skipped: [], errors: [] };
+  const currentTime = typeof clock === 'function' ? clock() : Number(clock);
+  const nowIso = new Date(currentTime).toISOString();
 
   let inTransit;
   try {
-    inTransit = await returnStore.listReturns({ db, status: STATES.IN_TRANSIT, limitN: 200 });
+    inTransit = await returnStore.listReturns({ db, status: STATES.IN_TRANSIT, limitN: 50 });
   } catch (err) {
     results.errors.push(`listReturns failed: ${err.message}`);
     return results;
@@ -33,8 +40,8 @@ export async function pollCarrier(db) {
 
   for (const ret of inTransit) {
     try {
-      // Simulate polling the carrier — in production this would be an HTTP call.
-      const trackingEvent = await _pollCarrierApi(ret);
+      // Simulate polling mock carrier
+      const trackingEvent = await _pollCarrierApi(ret, mockAlwaysDeliver);
       if (!trackingEvent || trackingEvent.event !== 'DELIVERED') {
         results.skipped.push(ret.id);
         continue;
@@ -46,8 +53,8 @@ export async function pollCarrier(db) {
       const updatedRecord = {
         ...ret,
         status: STATES.RECEIVED,
-        receivedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        receivedAt: nowIso,
+        updatedAt: nowIso,
       };
 
       const events = await returnStore.getAuditEvents({ db, returnId: ret.id });
@@ -57,7 +64,7 @@ export async function pollCarrier(db) {
         returnId: ret.id,
         action: 'CARRIER_DELIVERED',
         actor: 'carrier-poller',
-        data: { trackingEvent },
+        data: { trackingEvent, mock: true },
         previousHash,
       });
       event.seq = seq;
@@ -65,6 +72,7 @@ export async function pollCarrier(db) {
 
       await returnStore.saveReturn({ db, returnRecord: updatedRecord, event });
       results.advanced.push(ret.id);
+      console.log(`[MOCK_CARRIER] Advanced return ${ret.rma_number || ret.id} (IN_TRANSIT -> RECEIVED)`);
     } catch (err) {
       results.errors.push(`${ret.id}: ${err.message}`);
     }
@@ -75,19 +83,18 @@ export async function pollCarrier(db) {
 
 /**
  * Mock carrier API poll.
- * Returns a delivery event 33% of the time, null otherwise.
- * Replace this with real carrier API calls in production.
  *
  * @param {object} ret – the return record
- * @returns {Promise<{status: string}|null>}
+ * @param {boolean} [mockAlwaysDeliver]
+ * @returns {Promise<{status: string, event: string}|null>}
  */
-async function _pollCarrierApi(ret) {
-  if (process.env.MOCK_CARRIER_ALWAYS_DELIVER === '1') {
-    return emitTrackingEvent({ returnId: ret.id, event: 'DELIVERED', location: 'Warehouse' });
+async function _pollCarrierApi(ret, mockAlwaysDeliver) {
+  if (mockAlwaysDeliver || process.env.MOCK_CARRIER_ALWAYS_DELIVER === '1') {
+    return emitTrackingEvent({ returnId: ret.id, event: 'DELIVERED', location: 'Warehouse Central Receiving' });
   }
-  // Randomly simulate 1-in-3 probability for demo
+  // Randomly simulate 1-in-3 probability for demo runs
   if (Math.random() < 0.33) {
-    return { status: 'DELIVERED' };
+    return { status: 'DELIVERED', event: 'DELIVERED' };
   }
   return null;
 }
