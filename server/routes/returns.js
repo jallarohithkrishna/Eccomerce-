@@ -149,10 +149,10 @@ export function createReturnsRouter(db) {
           return res.status(404).json({ error: 'Order not found' });
         }
 
-        // 2. Ownership verification — caller must own the order unless admin/staff
+        // 2. Ownership verification — caller must own the order unless admin/staff (404 to prevent enumeration)
         const ownerUid = order.customer?.user_id || order.user_id || order.userId;
         if (ownerUid && ownerUid !== uid && req.user.role !== 'admin' && req.user.role !== 'staff') {
-          return res.status(403).json({ error: 'You can only create returns for your own orders' });
+          return res.status(404).json({ error: 'Order not found' });
         }
 
         // 3. Order status verification — must be delivered

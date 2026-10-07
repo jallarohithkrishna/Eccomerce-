@@ -363,7 +363,7 @@ describe('2. Strict Order Verification on Return Intake', () => {
     assert.equal(res.data.error, 'Order not found');
   });
 
-  it('Rejects intake with 403 if order belongs to a different customer', async () => {
+  it('Rejects intake with 404 if order belongs to a different customer (enumeration protection)', async () => {
     await returnStore.seedOrder({
       db: mockDb,
       order: {
@@ -382,8 +382,8 @@ describe('2. Strict Order Verification on Return Intake', () => {
       headers: { 'x-dev-uid': 'cust-bob', 'x-dev-role': 'customer' },
       body: { orderId: 'ord_alice_1', productId: 'p1', reason: 'size_mismatch' },
     });
-    assert.equal(res.status, 403);
-    assert.equal(res.data.error, 'You can only create returns for your own orders');
+    assert.equal(res.status, 404);
+    assert.equal(res.data.error, 'Order not found');
   });
 
   it('Allows staff or admin to create intake on behalf of customer', async () => {
