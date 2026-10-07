@@ -114,6 +114,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── ALERTS ───────────────────────────────────────────────────────────────
+    // System & SLA alerts written exclusively by the Server Orchestrator.
+    // Staff and Admin can read alerts. No client writes permitted.
+    match /alerts/{alertId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
     // ── PRODUCTS ─────────────────────────────────────────────────────────────
     match /products/{productId} {
       allow read: if true;

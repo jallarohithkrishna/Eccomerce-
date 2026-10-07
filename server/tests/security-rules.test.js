@@ -44,6 +44,10 @@ describe('Security Rules Verification Suite', () => {
     // 6. User role self-escalation prevented
     assert.ok(rules.includes('match /users/{userId}'), 'Must have users collection match');
     assert.ok(rules.includes('request.resource.data.role == resource.data.role') || rules.includes("role == 'customer'"), 'Must prevent self-escalation of roles');
+
+    // 7. Alerts collection: staff and admin read, no client writes
+    assert.ok(rules.includes('match /alerts/{alertId}'), 'Must have alerts match');
+    assert.ok(rules.includes('allow read: if isStaff();') || rules.includes('allow read: if isStaff()'), 'Must allow staff read on alerts');
   });
 
   it('verifies storage.rules syntax and upload constraints', () => {
