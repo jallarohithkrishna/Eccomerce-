@@ -798,6 +798,16 @@ app.post('/api/returns/:id/resolve', authMiddleware, async (req, res) => {
       assertTransition(current, targetStatus);
     }
 
+    const prevHash = await returnStore.getLatestEventHash({ db, returnId: record.id });
+    const ev = createEvent({
+      returnId: record.id,
+      previousHash: prevHash || GENESIS_HASH,
+      actor: uid,
+      action: 'RESOLVED_BY_STAFF',
+      data: { from: current, to: targetStatus, resolution }
+    });
+
+    // Return write + audit event land in the same Firestore batch.
     const updated = await returnStore.saveReturn({
       db,
       returnRecord: {
@@ -808,18 +818,9 @@ app.post('/api/returns/:id/resolve', authMiddleware, async (req, res) => {
         resolved_by: uid,
         resolved_at: new Date().toISOString(),
         resolution,
-      }
+      },
+      event: ev,
     });
-
-    const prevHash = await returnStore.getLatestEventHash({ db, returnId: record.id });
-    const ev = createEvent({
-      returnId: record.id,
-      previousHash: prevHash || GENESIS_HASH,
-      actor: uid,
-      action: 'RESOLVED_BY_STAFF',
-      data: { from: current, to: targetStatus, resolution }
-    });
-    await returnStore.appendAuditEvent({ db, returnId: record.id, event: ev });
 
     res.json({ success: true, returnId: record.id, status: targetStatus, returnRecord: updated });
   } catch (err) {
@@ -882,7 +883,18 @@ app.post('/api/returns/:id/courier-intake', async (req, res) => {
     }
     assertTransition(current, STATES.IN_TRANSIT);
 
-    // 3. Write only the fields we control — ignore everything else the caller sends
+    // 3. Audit event hash-chained to the existing log, written in the same
+    //    Firestore batch as the return write.
+    const prevHash = await returnStore.getLatestEventHash({ db, returnId: record.id });
+    const ev = createEvent({
+      returnId: record.id,
+      previousHash: prevHash || GENESIS_HASH,
+      actor: 'courier',
+      action: 'COURIER_INTAKE_CONFIRMED',
+      data: { from: current, to: STATES.IN_TRANSIT }
+    });
+
+    // 4. Write only the fields we control — ignore everything else the caller sends
     await returnStore.saveReturn({
       db,
       returnRecord: {
@@ -892,19 +904,9 @@ app.post('/api/returns/:id/courier-intake', async (req, res) => {
         status_label: 'In Transit',
         courier_intake_verified: true,
         courier_intake_timestamp: new Date().toISOString(),
-      }
+      },
+      event: ev,
     });
-
-    // 4. Audit event (hash-chained to the existing log)
-    const prevHash = await returnStore.getLatestEventHash({ db, returnId: record.id });
-    const ev = createEvent({
-      returnId: record.id,
-      previousHash: prevHash || GENESIS_HASH,
-      actor: 'courier',
-      action: 'COURIER_INTAKE_CONFIRMED',
-      data: { from: current, to: STATES.IN_TRANSIT }
-    });
-    await returnStore.appendAuditEvent({ db, returnId: record.id, event: ev });
 
     // 5. Mark token as used (replay protection) — only after successful write
     _usedCourierTokens.add(token);

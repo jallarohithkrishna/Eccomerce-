@@ -31,13 +31,17 @@ function createMockFirestore() {
     returns: new Map(), // docId -> data
     orders:  new Map(), // docId -> data
   };
+  // One entry per commit(): the doc paths written together in that batch.
+  const commits = [];
 
   function getDocRef(colName, docId) {
     if (!store[colName]) store[colName] = new Map();
     const colMap = store[colName];
+    const docPath = `${colName}/${docId}`;
 
     return {
       id: docId,
+      path: docPath,
       async get() {
         const item = colMap.get(docId);
         const data = item ? { ...item } : undefined;
@@ -69,8 +73,10 @@ function createMockFirestore() {
 
         return {
           doc(subDocId) {
+            const subPath = `${docPath}/${subColName}/${subDocId}`;
             return {
               id: subDocId,
+              path: subPath,
               async get() {
                 const subData = subMap.get(subDocId);
                 return {
@@ -80,6 +86,13 @@ function createMockFirestore() {
                 };
               },
               async set(data) {
+                subMap.set(subDocId, { ...data });
+              },
+              // Mirrors Firestore's create(): refuses to touch an existing doc.
+              async create(data) {
+                if (subMap.has(subDocId)) {
+                  throw new Error(`Document already exists: ${subPath}`);
+                }
                 subMap.set(subDocId, { ...data });
               }
             };
@@ -122,16 +135,21 @@ function createMockFirestore() {
   const db = {
     _isMock: true,
     _store: store,
+    _commits: commits,
     batch() {
       const operations = [];
       return {
         set(docRef, data, options = {}) {
-          operations.push(() => docRef.set(data, options));
+          operations.push({ path: docRef.path, run: () => docRef.set(data, options) });
+        },
+        create(docRef, data) {
+          operations.push({ path: docRef.path, run: () => docRef.create(data) });
         },
         async commit() {
           for (const op of operations) {
-            await op();
+            await op.run();
           }
+          commits.push(operations.map(op => op.path));
         }
       };
     },
@@ -234,6 +252,7 @@ beforeEach(() => {
   returnStore._clearAll();
   mockDb._store.returns.clear();
   mockDb._store.orders.clear();
+  mockDb._commits.length = 0;
 });
 
 async function req(endpoint, { method = 'GET', headers = {}, body } = {}) {
@@ -776,5 +795,69 @@ describe('3. Firestore Branch & Persistence Requirements', () => {
     assert.equal(auditRes.data.events[1].seq, 2);
     assert.equal(auditRes.data.events[1].prevHash, auditRes.data.events[0].hash);
     assert.equal(auditRes.data.verification.valid, true);
+  });
+
+  it('Audit event and return record are committed in the SAME Firestore batch, and events are create-only', async () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    await returnStore.seedOrder({
+      db: mockDb,
+      order: {
+        id: 'ord_same_batch',
+        userId: 'cust-same-batch',
+        customer: { user_id: 'cust-same-batch' },
+        status: 'delivered',
+        delivered_at: twoDaysAgo,
+        items: [{ id: 'p_sb', product_id: 'p_sb', name: 'Lens', price: 4100, quantity: 1, category: 'standard' }],
+      }
+    });
+
+    const intakeRes = await req('/returns/intake', {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-same-batch', 'x-dev-role': 'customer' },
+      body: { orderId: 'ord_same_batch', productId: 'p_sb', reason: 'defective' },
+    });
+    assert.equal(intakeRes.status, 201);
+    const returnId = intakeRes.data.returnRecord.id;
+
+    // 1. One commit carried both the return document and its first event.
+    const shared = mockDb._commits.find(paths =>
+      paths.includes(`returns/${returnId}`) && paths.includes(`returns/${returnId}/events/000001`)
+    );
+    assert.ok(
+      shared,
+      `expected return + event in one batch, commits were: ${JSON.stringify(mockDb._commits)}`
+    );
+
+    const eventsOf = () => mockDb._store.returns.get(returnId)._subcollections.events;
+    const storedFirst = eventsOf().get('000001');
+    assert.equal(storedFirst.seq, 1);
+    assert.ok(storedFirst.hash, 'hash must be stored');
+    assert.equal(storedFirst.prevHash, '0'.repeat(64), 'prevHash must be stored');
+
+    // 2. Create-only at the document level: a second write to the same seq is refused.
+    await assert.rejects(
+      () => mockDb.collection('returns').doc(returnId).collection('events').doc('000001')
+        .create({ seq: 1, hash: 'tampered-hash' }),
+      /already exists/,
+      'event documents must refuse overwrites'
+    );
+    assert.equal(eventsOf().get('000001').hash, storedFirst.hash, 'the stored event must be untouched');
+
+    // 3. Create-only at the store level: a colliding seq never reaches Firestore.
+    await returnStore.appendAuditEvent({
+      db: mockDb,
+      returnId,
+      event: {
+        seq: 1,
+        hash: 'deadbeef',
+        actor: 'attacker',
+        action: 'TAMPER',
+        data: {},
+        timestamp: new Date().toISOString(),
+        previousHash: '0'.repeat(64),
+      },
+    });
+    assert.equal(eventsOf().get('000001').hash, storedFirst.hash, 'store must not rewrite an existing seq');
+    assert.equal(eventsOf().size, 1, 'no extra event may be appended for a colliding seq');
   });
 });

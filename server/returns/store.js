@@ -168,7 +168,7 @@ export async function saveReturn({ db, returnRecord, event }) {
     rmaToIdMap.set(record.rma_number.toUpperCase(), id);
   }
 
-  // Handle audit event if passed
+  // Handle audit event if passed (create-only: a seq is written exactly once)
   let eventRecord = null;
   if (event) {
     let chain = returnEvents.get(id);
@@ -178,14 +178,20 @@ export async function saveReturn({ db, returnRecord, event }) {
     chain = chain || [];
     const seq = event.seq || (chain.length + 1);
     const prevHash = event.prevHash || event.previousHash || (chain.length > 0 ? chain[chain.length - 1].hash : GENESIS_HASH);
-    eventRecord = {
-      ...event,
-      returnId: id,
-      seq,
-      prevHash,
-      previousHash: prevHash,
-    };
-    if (!chain.some(e => e.hash === eventRecord.hash)) {
+
+    const occupied = chain.find(e => Number(e.seq) === Number(seq)) ||
+                     chain.find(e => e.hash === event.hash);
+    if (occupied) {
+      // Append-only log: an event already owns this slot — never overwrite it.
+      eventRecord = null;
+    } else {
+      eventRecord = {
+        ...event,
+        returnId: id,
+        seq,
+        prevHash,
+        previousHash: prevHash,
+      };
       chain.push(eventRecord);
     }
     returnEvents.set(id, chain);
@@ -221,14 +227,18 @@ export async function saveReturn({ db, returnRecord, event }) {
         if (eventRecord) {
           const seqStr = String(eventRecord.seq).padStart(6, '0');
           const eventRef = returnRef.collection('events').doc(seqStr);
-          batch.set(eventRef, eventRecord);
+          // Create-only: an audit event is never updated once written.
+          if (typeof batch.create === 'function') batch.create(eventRef, eventRecord);
+          else batch.set(eventRef, eventRecord);
         }
         await batch.commit();
       } else {
         await db.collection('returns').doc(id).set(record, { merge: true });
         if (eventRecord) {
           const seqStr = String(eventRecord.seq).padStart(6, '0');
-          await db.collection('returns').doc(id).collection('events').doc(seqStr).set(eventRecord);
+          const eventRef = db.collection('returns').doc(id).collection('events').doc(seqStr);
+          if (typeof eventRef.create === 'function') await eventRef.create(eventRecord);
+          else await eventRef.set(eventRecord);
         }
       }
     } catch (err) {
@@ -351,6 +361,12 @@ export async function appendAuditEvent({ db, returnId, event }) {
   chain = chain || [];
   const seq = event.seq || (chain.length + 1);
   const prevHash = event.prevHash || event.previousHash || (chain.length > 0 ? chain[chain.length - 1].hash : GENESIS_HASH);
+
+  // Create-only guard: a seq (or a hash) that already exists is never rewritten.
+  const occupied = chain.find(e => Number(e.seq) === Number(seq)) ||
+                   chain.find(e => e.hash === event.hash);
+  if (occupied) return chain;
+
   const eventRecord = {
     ...event,
     returnId,
@@ -358,15 +374,15 @@ export async function appendAuditEvent({ db, returnId, event }) {
     prevHash,
     previousHash: prevHash,
   };
-  if (!chain.some(e => e.hash === eventRecord.hash)) {
-    chain.push(eventRecord);
-  }
+  chain.push(eventRecord);
   returnEvents.set(returnId, chain);
 
   if (shouldSync(db)) {
     try {
       const seqStr = String(seq).padStart(6, '0');
-      await db.collection('returns').doc(returnId).collection('events').doc(seqStr).set(eventRecord);
+      const eventRef = db.collection('returns').doc(returnId).collection('events').doc(seqStr);
+      if (typeof eventRef.create === 'function') await eventRef.create(eventRecord);
+      else await eventRef.set(eventRecord);
     } catch (err) {
       console.warn(`Firestore appendAuditEvent error (${returnId}):`, err.message);
     }
