@@ -156,18 +156,22 @@ describe('PATCH /api/orders/:id/status — Order Status Enforcement', () => {
   });
 
   it('OS09: err.message is NOT exposed when NODE_ENV is not test', async () => {
-    // We test this by checking that the error body on an invalid status
-    // only contains "error" and "code" — not an uncaught server detail.
-    // (In NODE_ENV=test the store throws OrderStatusError which is a 400
-    // and the message IS intentionally in the body as the human-readable error.
-    // What must NOT leak is an unexpected 500 detail.)
-    await seedOrder('ord_os09', 'pending');
-    const { status, data } = await patch('ord_os09', 'INVALID_STATUS', 'staff');
-    assert.equal(status, 400);
-    // The 400 body contains error+code (OK to show)
-    assert.ok(data.error);
-    assert.ok(data.code);
-    // There must be no raw stack or Node internals
-    assert.ok(!data.stack, 'stack must not leak');
+    const prevEnv = process.env.NODE_ENV;
+    const prevDevAuth = process.env.ALLOW_DEV_AUTH;
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.ALLOW_DEV_AUTH = '1';
+      await seedOrder('ord_os09_prod', 'pending');
+      const { status, data } = await patch('ord_os09_prod', 'INVALID_STATUS', 'staff');
+      assert.equal(status, 400);
+      assert.equal(data.error, 'Invalid order status transition');
+      assert.equal(data.code, 'ORDER_STATUS_INVALID');
+      assert.ok(!data.detail, 'detail must not be present in production');
+      assert.ok(!data.stack, 'stack must not leak');
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+      if (prevDevAuth === undefined) delete process.env.ALLOW_DEV_AUTH;
+      else process.env.ALLOW_DEV_AUTH = prevDevAuth;
+    }
   });
 });

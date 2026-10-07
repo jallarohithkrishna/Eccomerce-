@@ -707,11 +707,14 @@ app.patch('/api/orders/:id/status', authMiddleware, async (req, res) => {
       delivered_at: updated ? updated.delivered_at || null : null,
     });
   } catch (err) {
+    const isTest = process.env.NODE_ENV === 'test';
     if (err instanceof OrderStatusError) {
-      const body = { error: err.message, code: err.code };
+      const body = {
+        error: isTest ? err.message : 'Invalid order status transition',
+        code: err.code,
+      };
       return res.status(400).json(body);
     }
-    const isTest = process.env.NODE_ENV === 'test';
     res.status(500).json({
       error: 'Failed to update order status',
       ...(isTest ? { detail: err.message } : {}),
