@@ -103,22 +103,68 @@ describe('State Machine — illegal transitions', () => {
   });
 });
 
-describe('State Machine — terminal and allowed transitions', () => {
-  it('SM17 COMPLETED is terminal', () => {
+describe('State Machine — Phase C2 States & Legal Transitions', () => {
+  it('SM21 NEEDS_INFO transitions', () => {
+    assert.doesNotThrow(() => assertTransition(STATES.REQUESTED, STATES.NEEDS_INFO));
+    assert.doesNotThrow(() => assertTransition(STATES.VERIFYING, STATES.NEEDS_INFO));
+    assert.doesNotThrow(() => assertTransition(STATES.ELIGIBILITY_CHECK, STATES.NEEDS_INFO));
+    assert.doesNotThrow(() => assertTransition(STATES.HUMAN_REVIEW, STATES.NEEDS_INFO));
+    assert.doesNotThrow(() => assertTransition(STATES.NEEDS_INFO, STATES.VERIFYING));
+    assert.doesNotThrow(() => assertTransition(STATES.NEEDS_INFO, STATES.ELIGIBILITY_CHECK));
+    assert.doesNotThrow(() => assertTransition(STATES.NEEDS_INFO, STATES.HUMAN_REVIEW));
+    assert.doesNotThrow(() => assertTransition(STATES.NEEDS_INFO, STATES.CLOSED_STALE));
+    assert.throws(() => assertTransition(STATES.NEEDS_INFO, STATES.COMPLETED), ReturnStateError);
+  });
+
+  it('SM22 CLOSED_STALE is terminal and cannot transition to anything', () => {
+    assert.equal(isTerminal(STATES.CLOSED_STALE), true);
+    assert.throws(() => assertTransition(STATES.CLOSED_STALE, STATES.REQUESTED), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.CLOSED_STALE, STATES.HUMAN_REVIEW), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.CLOSED_STALE, STATES.COMPLETED), ReturnStateError);
+  });
+
+  it('SM23 REFUND_FAILED transitions', () => {
+    assert.doesNotThrow(() => assertTransition(STATES.REFUND_PROCESSING, STATES.REFUND_FAILED));
+    assert.doesNotThrow(() => assertTransition(STATES.REFUND_FAILED, STATES.REFUND_PROCESSING));
+    assert.doesNotThrow(() => assertTransition(STATES.REFUND_FAILED, STATES.HUMAN_REVIEW));
+    assert.doesNotThrow(() => assertTransition(STATES.REFUND_FAILED, STATES.REJECTED));
+    assert.throws(() => assertTransition(STATES.REFUND_FAILED, STATES.APPROVED), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.REFUND_FAILED, STATES.IN_TRANSIT), ReturnStateError);
+  });
+
+  it('SM24 REPLACEMENT_SHIPPED transitions', () => {
+    assert.doesNotThrow(() => assertTransition(STATES.APPROVED, STATES.REPLACEMENT_SHIPPED));
+    assert.doesNotThrow(() => assertTransition(STATES.INSPECTION, STATES.REPLACEMENT_SHIPPED));
+    assert.doesNotThrow(() => assertTransition(STATES.HUMAN_REVIEW, STATES.REPLACEMENT_SHIPPED));
+    assert.doesNotThrow(() => assertTransition(STATES.REPLACEMENT_SHIPPED, STATES.COMPLETED));
+    assert.throws(() => assertTransition(STATES.REPLACEMENT_SHIPPED, STATES.REQUESTED), ReturnStateError);
+    assert.throws(() => assertTransition(STATES.REPLACEMENT_SHIPPED, STATES.REFUND_PROCESSING), ReturnStateError);
+  });
+
+  it('SM25 Terminal states never move, except the REJECTED → HUMAN_REVIEW appeal edge', () => {
+    // COMPLETED terminal
     assert.equal(isTerminal(STATES.COMPLETED), true);
-  });
-  it('SM18 REJECTED is terminal', () => {
+    for (const target of Object.values(STATES)) {
+      assert.throws(() => assertTransition(STATES.COMPLETED, target), ReturnStateError);
+    }
+
+    // CLOSED_STALE terminal
+    assert.equal(isTerminal(STATES.CLOSED_STALE), true);
+    for (const target of Object.values(STATES)) {
+      assert.throws(() => assertTransition(STATES.CLOSED_STALE, target), ReturnStateError);
+    }
+
+    // REJECTED terminal except appeal
     assert.equal(isTerminal(STATES.REJECTED), true);
-  });
-  it('SM19 REQUESTED is not terminal', () => {
-    assert.equal(isTerminal(STATES.REQUESTED), false);
-  });
-  it('SM20 allowedTransitions(REQUESTED) includes VERIFYING and REJECTED', () => {
-    const allowed = allowedTransitions(STATES.REQUESTED);
-    assert.ok(allowed.includes(STATES.VERIFYING));
-    assert.ok(allowed.includes(STATES.REJECTED));
+    assert.doesNotThrow(() => assertTransition(STATES.REJECTED, STATES.HUMAN_REVIEW));
+    for (const target of Object.values(STATES)) {
+      if (target !== STATES.HUMAN_REVIEW) {
+        assert.throws(() => assertTransition(STATES.REJECTED, target), ReturnStateError);
+      }
+    }
   });
 });
+
 
 // ─── Audit Chain ──────────────────────────────────────────────────────────
 
