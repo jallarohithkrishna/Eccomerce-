@@ -31,6 +31,7 @@ import { createEvent, verifyChain, GENESIS_HASH } from '../returns/audit.js';
 import { initiateRefund } from '../returns/refunds.js';
 import { analyzeEvidence, detectMimeType, checkUploadRateLimit } from '../agent/evidence.js';
 import * as returnStore from '../returns/store.js';
+import { OrderStatusError } from '../returns/store.js';
 import { RMA_PATTERN } from '../returns/rma.js';
 
 /** Header the carrier must send the shared secret in. */
@@ -909,7 +910,19 @@ export function createReturnsRouter(db) {
       if (!targetOrderId) {
         return res.status(400).json({ error: 'Order ID required for DELIVERED status' });
       }
-      const updatedOrder = await returnStore.updateOrderStatus({ db, orderId: targetOrderId, status: 'delivered' });
+
+      let updatedOrder;
+      try {
+        updatedOrder = await returnStore.updateOrderStatus({ db, orderId: targetOrderId, status: 'delivered' });
+      } catch (err) {
+        if (err instanceof OrderStatusError && err.code === 'ORDER_STATUS_FINAL') {
+          // Idempotent: order is already delivered — return the existing record.
+          updatedOrder = await returnStore.getOrder({ db, orderId: targetOrderId }) || { status: 'delivered' };
+        } else {
+          throw err;
+        }
+      }
+
       if (returnId) {
         const record = await returnStore.getReturn({ db, identifier: returnId });
         if (record) {
