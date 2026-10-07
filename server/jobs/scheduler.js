@@ -5,16 +5,21 @@
  * Uses node-cron for scheduling.
  *
  * Schedules:
- *   closeStale   — runs every hour  (0 * * * *)
- *   pollCarrier  — runs every 15 min (*/15 * * * *)
+ *   closeStale          — runs every hour     (0 * * * *)
+ *   pollCarrier         — runs every 15 min   (星/15 * * * *)
+ *   pickupSla           — runs every 30 min   (星/30 * * * *)
+ *   warehouseReceiptSla — runs every 2 hours  (0 */2 * * * *)
+ *   retryRefunds        — runs every 5 min    (星/5 * * * *)
  *
- * Usage:
- *   import { startJobs } from './jobs/scheduler.js';
- *   if (process.env.ENABLE_JOBS === '1') startJobs(db);
+ * Safety:
+ *   Logs a prominent warning if ENABLE_JOBS=1 is set without FIRESTORE_EMULATOR_HOST.
  */
 
 import { closeStaleReturns } from './closeStale.js';
 import { pollCarrier } from './pollCarrier.js';
+import { checkPickupSla } from './pickupSla.js';
+import { checkWarehouseReceiptSla } from './warehouseReceiptSla.js';
+import { retryRefunds } from './retryRefunds.js';
 
 let _cron = null;
 
@@ -43,13 +48,25 @@ const _scheduledTasks = [];
  * @param {object|null} db – Firestore Admin SDK instance (or null)
  */
 export async function startJobs(db) {
+  if (process.env.ENABLE_JOBS !== '1') {
+    return;
+  }
+
+  // Live quota guard warning
+  if (!process.env.FIRESTORE_EMULATOR_HOST) {
+    console.warn(
+      '[WARNING] ENABLE_JOBS=1 is set without FIRESTORE_EMULATOR_HOST. ' +
+      'Scheduled background jobs will consume live Firestore project quota.'
+    );
+  }
+
   const cron = await getCron();
 
-  // Close stale HUMAN_REVIEW returns every hour
+  // 1. Close stale NEEDS_INFO returns (>7d) & flag HUMAN_REVIEW SLA (>24h)
   const staleJob = cron.schedule('0 * * * *', async () => {
     try {
       const result = await closeStaleReturns(db);
-      if (result.closed.length > 0 || result.errors.length > 0) {
+      if (result.closed.length > 0 || result.alerted.length > 0 || result.errors.length > 0) {
         console.log('[jobs/closeStale]', JSON.stringify(result));
       }
     } catch (err) {
@@ -57,7 +74,7 @@ export async function startJobs(db) {
     }
   });
 
-  // Poll carrier for IN_TRANSIT returns every 15 minutes
+  // 2. Poll mock carrier for IN_TRANSIT returns every 15 minutes
   const pollJob = cron.schedule('*/15 * * * *', async () => {
     try {
       const result = await pollCarrier(db);
@@ -69,8 +86,44 @@ export async function startJobs(db) {
     }
   });
 
-  _scheduledTasks.push(staleJob, pollJob);
-  console.log('[scheduler] Jobs started: closeStale (hourly), pollCarrier (every 15 min)');
+  // 3. Monitor pickup SLA breaches (APPROVED >48h or missed slots) every 30 minutes
+  const pickupJob = cron.schedule('*/30 * * * *', async () => {
+    try {
+      const result = await checkPickupSla(db);
+      if (result.alerted.length > 0 || result.errors.length > 0) {
+        console.log('[jobs/pickupSla]', JSON.stringify(result));
+      }
+    } catch (err) {
+      console.error('[jobs/pickupSla] uncaught error:', err.message);
+    }
+  });
+
+  // 4. Monitor warehouse transit receipt SLA (IN_TRANSIT >7d) every 2 hours
+  const transitJob = cron.schedule('0 */2 * * *', async () => {
+    try {
+      const result = await checkWarehouseReceiptSla(db);
+      if (result.escalated.length > 0 || result.errors.length > 0) {
+        console.log('[jobs/warehouseReceiptSla]', JSON.stringify(result));
+      }
+    } catch (err) {
+      console.error('[jobs/warehouseReceiptSla] uncaught error:', err.message);
+    }
+  });
+
+  // 5. Retry failed refunds with backoff every 5 minutes
+  const refundRetryJob = cron.schedule('*/5 * * * *', async () => {
+    try {
+      const result = await retryRefunds(db);
+      if (result.retried.length > 0 || result.succeeded.length > 0 || result.escalated.length > 0 || result.errors.length > 0) {
+        console.log('[jobs/retryRefunds]', JSON.stringify(result));
+      }
+    } catch (err) {
+      console.error('[jobs/retryRefunds] uncaught error:', err.message);
+    }
+  });
+
+  _scheduledTasks.push(staleJob, pollJob, pickupJob, transitJob, refundRetryJob);
+  console.log('[scheduler] Background jobs started: closeStale, pollCarrier, pickupSla, warehouseReceiptSla, retryRefunds');
 }
 
 /**
