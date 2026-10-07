@@ -59,6 +59,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API
 
 // ─── Courier QR-pass token helpers ──────────────────────────────────────────
 // Sign tokens with a server secret. Rotate COURIER_TOKEN_SECRET in env.
+if (process.env.NODE_ENV === 'production' && !process.env.COURIER_TOKEN_SECRET) {
+  throw new Error('COURIER_TOKEN_SECRET must be set in production');
+}
 const COURIER_TOKEN_SECRET = process.env.COURIER_TOKEN_SECRET || 'dev-courier-secret-CHANGE-IN-PROD';
 const COURIER_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 // In-memory replay store: token → true. Persists for process lifetime.
