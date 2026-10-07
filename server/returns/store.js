@@ -4,6 +4,7 @@
  * audit chains, and communication messages.
  */
 
+import { FieldValue } from 'firebase-admin/firestore';
 import { GENESIS_HASH } from './audit.js';
 import { generateRma } from './rma.js';
 
@@ -37,6 +38,49 @@ export async function seedOrder({ db, order } = {}) {
       await db.collection('orders').doc(order.id).set(record, { merge: true });
     } catch (err) {
       console.warn(`Firestore seedOrder error (${order.id}):`, err.message);
+    }
+  }
+
+  return record;
+}
+
+/**
+ * Update order status and set delivered_at when status is delivered.
+ */
+export async function updateOrderStatus({ db, orderId, status, deliveredAt } = {}) {
+  if (!orderId) return null;
+  const cleanId = String(orderId).trim();
+  let record = orderRecords.get(cleanId);
+  if (!record && shouldSync(db)) {
+    record = await getOrder({ db, orderId: cleanId });
+  }
+  record = record || { id: cleanId };
+
+  const now = new Date().toISOString();
+  record.status = status;
+  record.updatedAt = now;
+
+  let serverTimestamp = deliveredAt;
+  if (String(status).toLowerCase() === 'delivered') {
+    if (!deliveredAt) {
+      serverTimestamp = (shouldSync(db) && db && typeof FieldValue !== 'undefined' && FieldValue.serverTimestamp)
+        ? FieldValue.serverTimestamp()
+        : now;
+    }
+    record.delivered_at = typeof serverTimestamp === 'string' ? serverTimestamp : (record.delivered_at || now);
+  }
+
+  orderRecords.set(cleanId, record);
+
+  if (shouldSync(db)) {
+    try {
+      const updateData = { status, updatedAt: now };
+      if (String(status).toLowerCase() === 'delivered') {
+        updateData.delivered_at = serverTimestamp || now;
+      }
+      await db.collection('orders').doc(cleanId).set(updateData, { merge: true });
+    } catch (err) {
+      console.warn(`Firestore updateOrderStatus error (${cleanId}):`, err.message);
     }
   }
 

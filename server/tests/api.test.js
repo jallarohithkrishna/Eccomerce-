@@ -554,6 +554,50 @@ describe('Warehouse Lifecycle & Carrier Webhook', () => {
     assert.ok(['REFUND_PROCESSING', 'COMPLETED'].includes(inspectRes.data.status));
     assert.ok(inspectRes.data.refund);
   });
+
+  it('API19: PATCH /api/orders/:id/status sets status to delivered and sets delivered_at, staff/admin only', async () => {
+    // 1. Customer attempt is rejected with 403
+    const custAttempt = await req('/api/orders/ord_1/status', {
+      method: 'PATCH',
+      headers: { 'x-dev-uid': 'cust-1', 'x-dev-role': 'customer' },
+      body: { status: 'delivered' },
+    });
+    assert.equal(custAttempt.status, 403);
+
+    // 2. Staff update succeeds and sets delivered_at
+    const staffRes = await req('/api/orders/ord_1/status', {
+      method: 'PATCH',
+      headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+      body: { status: 'delivered' },
+    });
+    assert.equal(staffRes.status, 200);
+    assert.equal(staffRes.data.status, 'delivered');
+    assert.ok(staffRes.data.delivered_at, 'delivered_at must be populated on server');
+
+    // Verify order in store has delivered_at
+    const orderInStore = await returnStore.getOrder({ orderId: 'ord_1' });
+    assert.equal(orderInStore.status, 'delivered');
+    assert.ok(orderInStore.delivered_at);
+  });
+
+  it('API20: Carrier webhook DELIVERED event sets order status to delivered and sets delivered_at', async () => {
+    const webhookRes = await req('/webhooks/carrier', {
+      method: 'POST',
+      headers: { 'x-carrier-secret': process.env.CARRIER_WEBHOOK_SECRET },
+      body: {
+        orderId: 'ord_2',
+        carrierStatus: 'DELIVERED',
+        trackingNumber: 'TRK-DELIV-100',
+      },
+    });
+    assert.equal(webhookRes.status, 200);
+    assert.equal(webhookRes.data.status, 'delivered');
+    assert.ok(webhookRes.data.delivered_at, 'delivered_at must be set by carrier DELIVERED event');
+
+    const orderInStore = await returnStore.getOrder({ orderId: 'ord_2' });
+    assert.equal(orderInStore.status, 'delivered');
+    assert.ok(orderInStore.delivered_at);
+  });
 });
 
 // ─── 6. Tamper-Evident Audit Chain ──────────────────────────────────────────

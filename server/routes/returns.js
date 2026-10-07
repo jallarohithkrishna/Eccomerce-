@@ -867,10 +867,13 @@ export function createReturnsRouter(db) {
 
   // ── 13. POST /webhooks/carrier ────────────────────────────────────────────
   const CarrierWebhookSchema = z.object({
-    returnId:       z.string().min(1),
+    returnId:       z.string().optional(),
+    orderId:        z.string().optional(),
     trackingNumber: z.string().optional(),
-    carrierStatus:  z.enum(['PICKED_UP', 'IN_TRANSIT', 'DELIVERED_TO_WAREHOUSE', 'EXCEPTION']),
+    carrierStatus:  z.enum(['PICKED_UP', 'IN_TRANSIT', 'DELIVERED_TO_WAREHOUSE', 'DELIVERED', 'EXCEPTION']),
     timestamp:      z.string().optional(),
+  }).refine(data => data.returnId || data.orderId, {
+    message: 'Either returnId or orderId must be provided'
   });
 
   // Shared-secret gate: timing-safe compare, no Firebase account involved.
@@ -895,7 +898,37 @@ export function createReturnsRouter(db) {
       return res.status(400).json({ error: 'Invalid carrier webhook payload', issues: parsed.error.issues });
     }
 
-    const { returnId, trackingNumber, carrierStatus } = parsed.data;
+    const { returnId, orderId, trackingNumber, carrierStatus } = parsed.data;
+
+    // Handle order delivery event via carrier webhook
+    if (carrierStatus === 'DELIVERED' || (orderId && !returnId)) {
+      const targetOrderId = orderId || (returnId ? (await returnStore.getReturn({ db, identifier: returnId }))?.orderId : null);
+      if (!targetOrderId && returnId) {
+        return res.status(404).json({ error: 'Return case not found' });
+      }
+      if (!targetOrderId) {
+        return res.status(400).json({ error: 'Order ID required for DELIVERED status' });
+      }
+      const updatedOrder = await returnStore.updateOrderStatus({ db, orderId: targetOrderId, status: 'delivered' });
+      if (returnId) {
+        const record = await returnStore.getReturn({ db, identifier: returnId });
+        if (record) {
+          await saveWithAudit({
+            returnRecord: {
+              ...record,
+              carrier_tracking: trackingNumber || record.pickup_details?.tracking_number,
+              last_carrier_status: carrierStatus,
+              last_carrier_update: new Date().toISOString(),
+            },
+            actor: 'carrier_webhook',
+            action: 'CARRIER_STATUS_UPDATE',
+            data: { carrierStatus, trackingNumber }
+          });
+        }
+      }
+      return res.json({ success: true, orderId: targetOrderId, status: 'delivered', delivered_at: updatedOrder.delivered_at || null });
+    }
+
     const record = await returnStore.getReturn({ db, identifier: returnId });
     if (!record) return res.status(404).json({ error: 'Return case not found' });
 
@@ -936,6 +969,8 @@ export function createReturnsRouter(db) {
 
     res.json({ success: true, returnId: record.id, status: targetStatus });
   });
+
+
 
   // ── 14. GET /returns/:id/audit ────────────────────────────────────────────
   router.get('/returns/:id/audit', verifyIdToken, async (req, res) => {

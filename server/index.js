@@ -692,17 +692,16 @@ app.patch('/api/orders/:id/status', authMiddleware, async (req, res) => {
   }
   const orderId = req.params.id;
   const { status } = req.body || {};
-  if (!status) return res.status(400).json({ error: 'Status is required' });
+  if (!status || typeof status !== 'string') return res.status(400).json({ error: 'Status is required' });
 
   try {
-    if (db) {
-      const orderRef = db.collection('orders').doc(orderId);
-      await orderRef.update({
-        status,
-        updated_at: FieldValue.serverTimestamp(),
-      });
-    }
-    res.json({ success: true, orderId, status });
+    const updated = await returnStore.updateOrderStatus({ db, orderId, status });
+    res.json({
+      success: true,
+      orderId,
+      status: updated ? updated.status : status,
+      delivered_at: updated ? updated.delivered_at || null : null,
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update order status', detail: err.message });
   }
