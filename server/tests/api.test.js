@@ -556,6 +556,20 @@ describe('Warehouse Lifecycle & Carrier Webhook', () => {
   });
 
   it('API19: PATCH /api/orders/:id/status sets status to delivered and sets delivered_at, staff/admin only', async () => {
+    // Reseed ord_1 as 'shipped' so the delivered transition is legal
+    // (the global seed sets orders to 'delivered' for return eligibility;
+    //  this test specifically needs a non-final status to test the transition)
+    returnStore._clearAll();
+    returnStore.seedOrder({
+      order: {
+        id: 'ord_1',
+        userId: 'cust-1',
+        status: 'shipped',
+        items: [{ id: 'prod_1', product_id: 'prod_1', name: 'Item 1', price: 500, quantity: 5, category: 'standard' }],
+        returns: [],
+      }
+    });
+
     // 1. Customer attempt is rejected with 403
     const custAttempt = await req('/api/orders/ord_1/status', {
       method: 'PATCH',

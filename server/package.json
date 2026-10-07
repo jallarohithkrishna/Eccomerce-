@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "generate-embeddings": "node generate-embeddings.js",
-    "test": "node --test tests/policy.test.js tests/orchestrator.test.js tests/agent.test.js tests/phase-b.test.js tests/api.test.js tests/security-rules.test.js tests/security.test.js tests/intake-and-persistence.test.js",
+    "test": "node --test tests/policy.test.js tests/orchestrator.test.js tests/agent.test.js tests/phase-b.test.js tests/api.test.js tests/security-rules.test.js tests/security.test.js tests/intake-and-persistence.test.js tests/order-status.test.js tests/services.test.js",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.emulator.test.js\"",
     "test:persistence": "firebase emulators:exec --only firestore \"node --test tests/persistence.emulator.test.js\"",
     "eval": "node evals/agent.js"
@@ -19,6 +19,7 @@
     "express": "^4.21.0",
     "firebase-admin": "^12.7.0",
     "multer": "^2.4.0",
+    "node-cron": "^4.6.0",
     "node-fetch": "^3.3.2",
     "zod": "^4.6.5"
   },

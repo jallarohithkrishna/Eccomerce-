@@ -21,6 +21,7 @@ import * as session         from './agent/session.js';
 import { createEvent, GENESIS_HASH } from './returns/audit.js';
 import { assertTransition, normalizeStatus, STATES } from './returns/stateMachine.js';
 import * as returnStore from './returns/store.js';
+import { OrderStatusError } from './returns/store.js';
 import { createReturnsRouter } from './routes/returns.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -702,11 +703,19 @@ app.patch('/api/orders/:id/status', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       orderId,
-      status: updated ? updated.status : status,
+      status: updated ? updated.status : status.toLowerCase(),
       delivered_at: updated ? updated.delivered_at || null : null,
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update order status', detail: err.message });
+    if (err instanceof OrderStatusError) {
+      const body = { error: err.message, code: err.code };
+      return res.status(400).json(body);
+    }
+    const isTest = process.env.NODE_ENV === 'test';
+    res.status(500).json({
+      error: 'Failed to update order status',
+      ...(isTest ? { detail: err.message } : {}),
+    });
   }
 });
 
@@ -934,8 +943,12 @@ const isDirectRun = process.argv[1] && (
 ) && !process.env.NODE_TEST_CONTEXT;
 
 if (isDirectRun && process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     console.log(`AI Shopping Assistant Server running on port ${PORT}`);
+    if (process.env.ENABLE_JOBS === '1') {
+      const { startJobs } = await import('./jobs/scheduler.js');
+      await startJobs(db);
+    }
   });
 }
 

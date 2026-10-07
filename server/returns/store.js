@@ -15,6 +15,30 @@ const returnMessages = new Map();  // returnId -> [Messages]
 const rmaToIdMap    = new Map();   // rmaNumber -> returnId
 const orderRecords  = new Map();   // orderId -> OrderRecord
 
+/**
+ * Legal order statuses in the only direction they may travel.
+ * - No backward moves allowed.
+ * - 'cancelled' and 'delivered' are final: nothing can move away from them.
+ * - 'delivered_at' is set exactly once (on the first 'delivered' transition)
+ *   and never overwritten.
+ */
+export const ORDER_STATUSES = Object.freeze(
+  ['pending', 'processing', 'shipped', 'delivered', 'cancelled']
+);
+
+/** Ordinal position of a status (-1 if unknown). */
+function orderStatusIndex(s) {
+  return ORDER_STATUSES.indexOf(String(s || '').toLowerCase());
+}
+
+export class OrderStatusError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'OrderStatusError';
+    this.code = code || 'ORDER_STATUS_INVALID';
+  }
+}
+
 export function shouldSync(db) {
   if (!db) return false;
   if (db._isMock || db.isMock) return true;
@@ -45,28 +69,74 @@ export async function seedOrder({ db, order } = {}) {
 }
 
 /**
- * Update order status and set delivered_at when status is delivered.
+ * Update order status with legal-order enforcement.
+ *
+ * Rules:
+ *  1. Status must be one of ORDER_STATUSES.
+ *  2. No backward moves (e.g. shipped → processing is forbidden).
+ *  3. 'delivered' and 'cancelled' are final — nothing may move away from them.
+ *  4. 'delivered_at' is set once on the first delivered transition and never overwritten.
  */
 export async function updateOrderStatus({ db, orderId, status, deliveredAt } = {}) {
   if (!orderId) return null;
   const cleanId = String(orderId).trim();
+
+  // 1. Validate requested status
+  const normalStatus = String(status || '').toLowerCase();
+  const toIdx = orderStatusIndex(normalStatus);
+  if (toIdx === -1) {
+    throw new OrderStatusError(
+      `Invalid status "${status}". Must be one of: ${ORDER_STATUSES.join(', ')}`,
+      'ORDER_STATUS_INVALID'
+    );
+  }
+
   let record = orderRecords.get(cleanId);
   if (!record && shouldSync(db)) {
     record = await getOrder({ db, orderId: cleanId });
   }
   record = record || { id: cleanId };
 
-  const now = new Date().toISOString();
-  record.status = status;
-  record.updatedAt = now;
+  const currentStatus = String(record.status || '').toLowerCase();
+  const fromIdx = orderStatusIndex(currentStatus);
 
+  // 2. Final-state guard: delivered and cancelled are irreversible
+  if (fromIdx !== -1 && (currentStatus === 'delivered' || currentStatus === 'cancelled')) {
+    throw new OrderStatusError(
+      `Cannot move order out of final status "${record.status}"`,
+      'ORDER_STATUS_FINAL'
+    );
+  }
+
+  // 3. No backward moves (cancelled can be applied from any non-final state; forward only for others)
+  if (fromIdx !== -1 && normalStatus !== 'cancelled' && toIdx < fromIdx) {
+    throw new OrderStatusError(
+      `Cannot move order backwards from "${record.status}" to "${status}"`,
+      'ORDER_STATUS_BACKWARD'
+    );
+  }
+
+  const now = new Date().toISOString();
+
+  // 4. delivered_at: set once, never overwrite
   let serverTimestamp = deliveredAt;
-  if (String(status).toLowerCase() === 'delivered') {
+  if (normalStatus === 'delivered' && !record.delivered_at) {
     if (!deliveredAt) {
       serverTimestamp = (shouldSync(db) && db && typeof FieldValue !== 'undefined' && FieldValue.serverTimestamp)
         ? FieldValue.serverTimestamp()
         : now;
     }
+  } else if (normalStatus === 'delivered' && record.delivered_at) {
+    // Already set — preserve the original timestamp
+    serverTimestamp = record.delivered_at;
+  }
+
+  record = {
+    ...record,
+    status: normalStatus,
+    updatedAt: now,
+  };
+  if (normalStatus === 'delivered') {
     record.delivered_at = typeof serverTimestamp === 'string' ? serverTimestamp : (record.delivered_at || now);
   }
 
@@ -74,9 +144,12 @@ export async function updateOrderStatus({ db, orderId, status, deliveredAt } = {
 
   if (shouldSync(db)) {
     try {
-      const updateData = { status, updatedAt: now };
-      if (String(status).toLowerCase() === 'delivered') {
+      const updateData = { status: normalStatus, updatedAt: now };
+      if (normalStatus === 'delivered' && !record.delivered_at) {
         updateData.delivered_at = serverTimestamp || now;
+      } else if (normalStatus === 'delivered' && record.delivered_at) {
+        // Use setOnce pattern: only write if the field is missing
+        updateData.delivered_at = serverTimestamp || record.delivered_at;
       }
       await db.collection('orders').doc(cleanId).set(updateData, { merge: true });
     } catch (err) {
@@ -203,7 +276,9 @@ export async function saveReturn({ db, returnRecord, event }) {
     ...existing,
     ...returnRecord,
     id,
-    updatedAt: now,
+    // Preserve an explicit updatedAt from the caller (e.g. test seeds with stale dates).
+    // Only default to now when the record doesn't already supply one.
+    updatedAt: returnRecord.updatedAt || now,
     createdAt: existing.createdAt || returnRecord.createdAt || now,
   };
 
