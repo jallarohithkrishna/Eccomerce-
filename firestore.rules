@@ -70,10 +70,13 @@ service cloud.firestore {
     // All create/update operations are executed exclusively by the Server Orchestrator (Admin SDK).
     match /returns/{returnId} {
       function isReturnOwner() {
+        let parentDoc = get(/databases/$(database)/documents/returns/$(returnId)).data;
         return isSignedIn() && (
-          resource.data.userId == request.auth.uid ||
-          resource.data.user_id == request.auth.uid ||
-          resource.data.customer.user_id == request.auth.uid
+          (resource != null && resource.data != null && 'userId' in resource.data && resource.data.userId == request.auth.uid) ||
+          (resource != null && resource.data != null && 'user_id' in resource.data && resource.data.user_id == request.auth.uid) ||
+          (parentDoc != null && 'userId' in parentDoc && parentDoc.userId == request.auth.uid) ||
+          (parentDoc != null && 'user_id' in parentDoc && parentDoc.user_id == request.auth.uid) ||
+          (parentDoc != null && 'customer' in parentDoc && parentDoc.customer.user_id == request.auth.uid)
         );
       }
 
