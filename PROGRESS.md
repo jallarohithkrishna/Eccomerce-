@@ -175,9 +175,9 @@
 - [ ] **Accept**: all 9 deliverables work through UI
 
 ### Phase 7 — Automation & Notifications
-- [ ] Scheduled jobs: SLA timers (customer reply 7d, pickup 48h, warehouse receipt 7d), close stale, poll mock carrier
-- [ ] Notifications: in-app + email through notifier interface (mock for demo)
-- [ ] **Accept**: stale cases auto-close, SLA timers fire
+- [x] Scheduled jobs: SLA timers (customer reply 7d, pickup 48h, warehouse receipt 7d), close stale (`closeStale.js`), poll mock carrier (`pollCarrier.js`)
+- [x] Notifications: in-app + email through notifier interface (`server/services/notifier.js`)
+- [x] **Accept**: stale cases auto-close, SLA timers fire, mock carrier advances transit, services emit audit events
 
 ### Phase 8 — Demo & Evaluation
 - [ ] Seed script: ~50 orders, 10 products covering all scenarios
