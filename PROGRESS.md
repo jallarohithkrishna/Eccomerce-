@@ -171,6 +171,7 @@
 - [ ] `/admin/warehouse` screen for receive and inspect
 - [x] `ReturnVerification.jsx`: read through API route (non-personal fields only)
 - [ ] Remove all client-side decisions from `src/lib/returnAgent.js`
+- [ ] **TODO**: migrate Orders.jsx and Returns.jsx to read only the returns collection, then remove the orders.returns[] write.
 - [ ] **Accept**: all 9 deliverables work through UI
 
 ### Phase 7 — Automation & Notifications
