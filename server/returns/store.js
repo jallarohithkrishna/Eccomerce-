@@ -14,6 +14,7 @@ const returnEvents  = new Map();   // returnId -> [AuditEvents]
 const returnMessages = new Map();  // returnId -> [Messages]
 const rmaToIdMap    = new Map();   // rmaNumber -> returnId
 const orderRecords  = new Map();   // orderId -> OrderRecord
+const alertRecords  = new Map();   // alertId -> AlertRecord
 
 /**
  * Legal order statuses in the only direction they may travel.
@@ -605,6 +606,57 @@ export async function getReturnMessages({ db, returnId }) {
   return mem || [];
 }
 
+/**
+ * Save an alert into in-memory store and Firestore (when syncing).
+ */
+export async function createAlert({ db, alert } = {}) {
+  if (!alert) throw new Error('createAlert requires an alert object');
+  const id = alert.id || `alert_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const now = new Date().toISOString();
+  const record = {
+    ...alert,
+    id,
+    createdAt: alert.createdAt || now,
+    status: alert.status || 'OPEN',
+  };
+  alertRecords.set(id, record);
+
+  if (shouldSync(db)) {
+    try {
+      await db.collection('alerts').doc(id).set(record);
+    } catch (err) {
+      console.warn(`Firestore createAlert error (${id}):`, err.message);
+    }
+  }
+
+  return record;
+}
+
+/**
+ * List alerts with optional filtering.
+ */
+export async function listAlerts({ db, type, returnId, limitN = 50 } = {}) {
+  let list = Array.from(alertRecords.values());
+  if (list.length === 0 && shouldSync(db)) {
+    try {
+      let q = db.collection('alerts');
+      if (type) q = q.where('type', '==', type);
+      if (returnId) q = q.where('returnId', '==', returnId);
+      const snap = await q.limit(limitN).get();
+      list = snap.docs.map(d => {
+        const data = { id: d.id, ...d.data() };
+        alertRecords.set(d.id, data);
+        return data;
+      });
+    } catch (err) {
+      console.warn('Firestore listAlerts error:', err.message);
+    }
+  }
+  if (type) list = list.filter(a => a.type === type);
+  if (returnId) list = list.filter(a => a.returnId === returnId);
+  return list.slice(0, limitN);
+}
+
 /** Reset in-memory maps (for testing) */
 export function _clearAll() {
   returnRecords.clear();
@@ -612,4 +664,6 @@ export function _clearAll() {
   returnMessages.clear();
   rmaToIdMap.clear();
   orderRecords.clear();
+  alertRecords.clear();
 }
+

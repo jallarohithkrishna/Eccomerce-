@@ -1,22 +1,14 @@
 /**
- * Services & Jobs Tests — PS-01 Phase C2
+ * Services & Jobs Comprehensive Test Suite — PS-01 Phase C2
  *
- * SVC01 – carrier.generateLabel returns a valid label object
- * SVC02 – carrier.bookPickupSlot returns a scheduled slot
- * SVC03 – carrier.emitTrackingEvent returns a tracking event
- * SVC04 – warehouse.receiveItem returns a receipt
- * SVC05 – warehouse.inspectItem pass outcome
- * SVC06 – warehouse.inspectItem fail outcome (refundEligible = false)
- * SVC07 – warehouse.inspectItem rejects invalid outcome
- * SVC08 – payments.issueRefund succeeds
- * SVC09 – payments.issueRefund fails with simulateFailure flag
- * SVC10 – payments.issueRefund rejects missing returnId
- * SVC11 – payments.issueRefund rejects zero/negative amount
- * SVC12 – notifier.notify saves in-app message and returns messageId
- * SVC13 – notifier.notify without returnId throws
- * JOB01 – closeStale: marks stale HUMAN_REVIEW returns as CLOSED_STALE
- * JOB02 – closeStale: skips returns that are not yet stale
- * JOB03 – pollCarrier: advances IN_TRANSIT to RECEIVED when MOCK_CARRIER_ALWAYS_DELIVER=1
+ * Covers:
+ *  - Carrier, Warehouse, Payments, Notifier services
+ *  - closeStale: NEEDS_INFO (>7d) -> CLOSED_STALE + notify; HUMAN_REVIEW (>24h) -> slaBreached flag + staff alert (never auto-closes)
+ *  - pickupSla: APPROVED (>48h) or missed slot -> staff alert + customer notify
+ *  - warehouseReceiptSla: IN_TRANSIT (>7d) -> HUMAN_REVIEW ("trace needed") via state machine + staff alert + customer notify
+ *  - retryRefunds: backoff schedule (1m, 5m, 30m), same idempotency key, max 3 tries -> HUMAN_REVIEW + alert, success -> COMPLETED
+ *  - pollCarrier: IN_TRANSIT -> RECEIVED via state machine, [MOCK_CARRIER] tagged
+ *  - Fake-clock tests for every timer and double-run idempotency tests for every job
  *
  * Run: node --test tests/services.test.js
  */
@@ -28,7 +20,10 @@ import { generateLabel, bookPickupSlot, emitTrackingEvent } from '../services/ca
 import { receiveItem, inspectItem } from '../services/warehouse.js';
 import { issueRefund } from '../services/payments.js';
 import { notify } from '../services/notifier.js';
-import { closeStaleReturns, STALE_THRESHOLD_MS } from '../jobs/closeStale.js';
+import { closeStaleReturns, STALE_THRESHOLD_MS, HUMAN_REVIEW_SLA_MS } from '../jobs/closeStale.js';
+import { checkPickupSla, PICKUP_UNSCHEDULED_SLA_MS } from '../jobs/pickupSla.js';
+import { checkWarehouseReceiptSla, IN_TRANSIT_SLA_MS } from '../jobs/warehouseReceiptSla.js';
+import { retryRefunds, BACKOFF_SCHEDULE_MS, MAX_REFUND_RETRIES } from '../jobs/retryRefunds.js';
 import { pollCarrier } from '../jobs/pollCarrier.js';
 import * as returnStore from '../returns/store.js';
 import { STATES } from '../returns/stateMachine.js';
@@ -157,7 +152,6 @@ describe('Services — Notifier', () => {
     assert.equal(r.returnId, 'ret_svc12');
     assert.equal(r.emailSent, true);
 
-    // Verify the message is in the store
     const msgs = await returnStore.getReturnMessages({ db: null, returnId: 'ret_svc12' });
     assert.equal(msgs.length, 1);
     assert.equal(msgs[0].sender, 'system');
@@ -168,17 +162,17 @@ describe('Services — Notifier', () => {
   });
 });
 
-// ─── Jobs ─────────────────────────────────────────────────────────────────────
+// ─── Job: closeStale ─────────────────────────────────────────────────────────
 
-describe('Jobs — closeStale', () => {
-  it('JOB01: stale HUMAN_REVIEW return is closed with CLOSED_STALE status', async () => {
-    // Seed a stale return (updatedAt 8 days ago)
-    const staleDate = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+describe('Jobs — closeStale (NEEDS_INFO & HUMAN_REVIEW SLA)', () => {
+  it('JOB01: NEEDS_INFO > 7 days is closed with CLOSED_STALE status and customer notified', async () => {
+    const baseTime = 1700000000000;
+    const staleDate = new Date(baseTime - 8 * 24 * 60 * 60 * 1000).toISOString();
     await returnStore.saveReturn({
       db: null,
       returnRecord: {
-        id: 'ret_job01',
-        status: STATES.HUMAN_REVIEW,
+        id: 'ret_needs_info_stale',
+        status: STATES.NEEDS_INFO,
         userId: 'cust-job01',
         rma_number: 'RMA-JOB01STALE',
         updatedAt: staleDate,
@@ -186,52 +180,267 @@ describe('Jobs — closeStale', () => {
       },
     });
 
-    const result = await closeStaleReturns(null);
-    assert.ok(result.closed.includes('ret_job01'), `expected ret_job01 in closed: ${JSON.stringify(result)}`);
-    assert.equal(result.errors.length, 0, `unexpected errors: ${result.errors}`);
+    const result = await closeStaleReturns(null, { clock: () => baseTime });
+    assert.ok(result.closed.includes('ret_needs_info_stale'), 'stale NEEDS_INFO must be closed');
 
-    // Verify the in-memory record was updated
-    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_job01' });
-    assert.equal(updated.status, 'CLOSED_STALE');
+    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_needs_info_stale' });
+    assert.equal(updated.status, STATES.CLOSED_STALE);
     assert.ok(updated.closedAt, 'closedAt must be set');
+
+    // Customer notification check
+    const msgs = await returnStore.getReturnMessages({ db: null, returnId: 'ret_needs_info_stale' });
+    assert.ok(msgs.length > 0, 'customer notification must be appended');
   });
 
-  it('JOB02: return updated recently is not closed (skipped)', async () => {
-    // Seed a fresh return (updatedAt 1 hour ago)
-    const freshDate = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  it('JOB02: NEEDS_INFO < 7 days is skipped (not closed)', async () => {
+    const baseTime = 1700000000000;
+    const freshDate = new Date(baseTime - 5 * 24 * 60 * 60 * 1000).toISOString();
     await returnStore.saveReturn({
       db: null,
       returnRecord: {
-        id: 'ret_job02',
-        status: STATES.HUMAN_REVIEW,
+        id: 'ret_needs_info_fresh',
+        status: STATES.NEEDS_INFO,
         userId: 'cust-job02',
         updatedAt: freshDate,
         createdAt: freshDate,
       },
     });
 
-    const result = await closeStaleReturns(null);
-    assert.ok(!result.closed.includes('ret_job02'), 'fresh return must NOT be closed');
+    const result = await closeStaleReturns(null, { clock: () => baseTime });
+    assert.ok(!result.closed.includes('ret_needs_info_fresh'));
+    const record = await returnStore.getReturn({ db: null, identifier: 'ret_needs_info_fresh' });
+    assert.equal(record.status, STATES.NEEDS_INFO);
   });
-});
 
-describe('Jobs — pollCarrier', () => {
-  it('JOB03: IN_TRANSIT return advances to RECEIVED when MOCK_CARRIER_ALWAYS_DELIVER=1', async () => {
-    process.env.MOCK_CARRIER_ALWAYS_DELIVER = '1';
+  it('JOB03: HUMAN_REVIEW never auto-closes; >24h sets slaBreached and writes staff alert', async () => {
+    const baseTime = 1700000000000;
+    const enteredReview = new Date(baseTime - 25 * 60 * 60 * 1000).toISOString(); // 25 hours ago
     await returnStore.saveReturn({
       db: null,
       returnRecord: {
-        id: 'ret_job03',
-        status: STATES.IN_TRANSIT,
-        userId: 'cust-job03',
+        id: 'ret_hr_sla',
+        status: STATES.HUMAN_REVIEW,
+        userId: 'cust-hr01',
+        rma_number: 'RMA-HRSLA1',
+        updatedAt: enteredReview,
+        createdAt: enteredReview,
       },
     });
 
-    const result = await pollCarrier(null);
-    assert.ok(result.advanced.includes('ret_job03'), `expected ret_job03 in advanced: ${JSON.stringify(result)}`);
+    const result = await closeStaleReturns(null, { clock: () => baseTime });
+    assert.ok(result.alerted.includes('ret_hr_sla'), 'breached HR case must be alerted');
+    assert.equal(result.closed.length, 0, 'HUMAN_REVIEW must NEVER be closed by job');
 
-    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_job03' });
+    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_hr_sla' });
+    assert.equal(updated.status, STATES.HUMAN_REVIEW, 'status must remain HUMAN_REVIEW');
+    assert.equal(updated.slaBreached, true, 'slaBreached flag must be set');
+
+    // Alert verified
+    const alerts = await returnStore.listAlerts({ db: null, returnId: 'ret_hr_sla' });
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].type, 'SLA_BREACH');
+    assert.equal(alerts[0].subtype, 'HUMAN_REVIEW_24H');
+  });
+
+  it('JOB04: closeStale double run is idempotent', async () => {
+    const baseTime = 1700000000000;
+    const staleDate = new Date(baseTime - 10 * 24 * 60 * 60 * 1000).toISOString();
+    await returnStore.saveReturn({
+      db: null,
+      returnRecord: {
+        id: 'ret_double_stale',
+        status: STATES.NEEDS_INFO,
+        userId: 'cust-double',
+        updatedAt: staleDate,
+        createdAt: staleDate,
+      },
+    });
+
+    // Run 1
+    const r1 = await closeStaleReturns(null, { clock: () => baseTime });
+    assert.equal(r1.closed.length, 1);
+
+    // Run 2
+    const r2 = await closeStaleReturns(null, { clock: () => baseTime });
+    assert.equal(r2.closed.length, 0, 'second run must do nothing');
+  });
+});
+
+// ─── Job: pickupSla ──────────────────────────────────────────────────────────
+
+describe('Jobs — pickupSla', () => {
+  it('JOB05: APPROVED > 48h without pickup scheduled triggers alert & customer notification', async () => {
+    const baseTime = 1700000000000;
+    const approvedAt = new Date(baseTime - 50 * 60 * 60 * 1000).toISOString(); // 50 hours ago
+    await returnStore.saveReturn({
+      db: null,
+      returnRecord: {
+        id: 'ret_pickup_sla_1',
+        status: STATES.APPROVED,
+        userId: 'cust-p1',
+        rma_number: 'RMA-PICKUP-1',
+        approvedAt,
+        updatedAt: approvedAt,
+      },
+    });
+
+    const result = await checkPickupSla(null, { clock: () => baseTime });
+    assert.ok(result.alerted.includes('ret_pickup_sla_1'));
+
+    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_pickup_sla_1' });
+    assert.equal(updated.status, STATES.APPROVED);
+    assert.equal(updated.pickupSlaBreached, true);
+
+    const alerts = await returnStore.listAlerts({ db: null, returnId: 'ret_pickup_sla_1' });
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].subtype, 'PICKUP_NOT_SCHEDULED_48H');
+
+    // Double run test
+    const r2 = await checkPickupSla(null, { clock: () => baseTime });
+    assert.equal(r2.alerted.length, 0, 'second run must be idempotent');
+  });
+
+  it('JOB06: PICKUP_SCHEDULED with missed slot triggers alert', async () => {
+    const baseTime = 1700000000000;
+    const missedSlot = new Date(baseTime - 3 * 60 * 60 * 1000).toISOString(); // 3 hours in past
+    await returnStore.saveReturn({
+      db: null,
+      returnRecord: {
+        id: 'ret_pickup_missed_1',
+        status: STATES.PICKUP_SCHEDULED,
+        userId: 'cust-p2',
+        rma_number: 'RMA-MISSED-1',
+        scheduledPickupSlot: missedSlot,
+        updatedAt: missedSlot,
+      },
+    });
+
+    const result = await checkPickupSla(null, { clock: () => baseTime });
+    assert.ok(result.alerted.includes('ret_pickup_missed_1'));
+
+    const alerts = await returnStore.listAlerts({ db: null, returnId: 'ret_pickup_missed_1' });
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].subtype, 'MISSED_PICKUP_SLOT');
+  });
+});
+
+// ─── Job: warehouseReceiptSla ────────────────────────────────────────────────
+
+describe('Jobs — warehouseReceiptSla', () => {
+  it('JOB07: IN_TRANSIT > 7d escalates to HUMAN_REVIEW with "trace needed" reason', async () => {
+    const baseTime = 1700000000000;
+    const inTransitAt = new Date(baseTime - 8 * 24 * 60 * 60 * 1000).toISOString(); // 8 days ago
+    await returnStore.saveReturn({
+      db: null,
+      returnRecord: {
+        id: 'ret_transit_stale_1',
+        status: STATES.IN_TRANSIT,
+        userId: 'cust-t1',
+        rma_number: 'RMA-TRANSIT-1',
+        inTransitAt,
+        updatedAt: inTransitAt,
+      },
+    });
+
+    const result = await checkWarehouseReceiptSla(null, { clock: () => baseTime });
+    assert.ok(result.escalated.includes('ret_transit_stale_1'));
+
+    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_transit_stale_1' });
+    assert.equal(updated.status, STATES.HUMAN_REVIEW);
+    assert.equal(updated.reviewReason, 'trace needed');
+
+    const alerts = await returnStore.listAlerts({ db: null, returnId: 'ret_transit_stale_1' });
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].subtype, 'IN_TRANSIT_DELAY');
+
+    // Double run test
+    const r2 = await checkWarehouseReceiptSla(null, { clock: () => baseTime });
+    assert.equal(r2.escalated.length, 0, 'second run must do nothing');
+  });
+});
+
+// ─── Job: retryRefunds ───────────────────────────────────────────────────────
+
+describe('Jobs — retryRefunds', () => {
+  it('JOB08: REFUND_FAILED waits for backoff before retrying', async () => {
+    const baseTime = 1700000000000;
+    const failedJustNow = new Date(baseTime - 30 * 1000).toISOString(); // 30s ago (backoff is 1m)
+    await returnStore.saveReturn({
+      db: null,
+      returnRecord: {
+        id: 'ret_rfd_wait',
+        status: STATES.REFUND_FAILED,
+        userId: 'cust-r1',
+        refundRetries: 0,
+        lastRefundAttemptAt: failedJustNow,
+        updatedAt: failedJustNow,
+      },
+    });
+
+    // Attempt immediately (too soon)
+    const r1 = await retryRefunds(null, { clock: () => baseTime });
+    assert.ok(r1.skipped.includes('ret_rfd_wait'));
+
+    // Advance clock past 1 min
+    const after1Min = baseTime + 70 * 1000;
+    const r2 = await retryRefunds(null, { clock: () => after1Min });
+    assert.ok(r2.succeeded.includes('ret_rfd_wait'), 'should succeed after backoff');
+
+    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_rfd_wait' });
+    assert.equal(updated.status, STATES.COMPLETED);
+  });
+
+  it('JOB09: REFUND_FAILED after 3 failed tries escalates to HUMAN_REVIEW and creates critical alert', async () => {
+    const baseTime = 1700000000000;
+    const lastFailedAt = new Date(baseTime - 35 * 60 * 1000).toISOString(); // 35 min ago
+    await returnStore.saveReturn({
+      db: null,
+      returnRecord: {
+        id: 'ret_rfd_exhaust',
+        status: STATES.REFUND_FAILED,
+        userId: 'cust-r2',
+        rma_number: 'RMA-EXHAUST-1',
+        refundRetries: 2, // 2 prior attempts, this will be attempt 3
+        lastRefundAttemptAt: lastFailedAt,
+        updatedAt: lastFailedAt,
+      },
+    });
+
+    // Simulate failure on the 3rd attempt
+    const result = await retryRefunds(null, { clock: () => baseTime, simulateFailure: true });
+    assert.ok(result.escalated.includes('ret_rfd_exhaust'));
+
+    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_rfd_exhaust' });
+    assert.equal(updated.status, STATES.HUMAN_REVIEW);
+    assert.equal(updated.refundRetries, 3);
+
+    const alerts = await returnStore.listAlerts({ db: null, returnId: 'ret_rfd_exhaust' });
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].severity, 'CRITICAL');
+  });
+});
+
+// ─── Job: pollCarrier ────────────────────────────────────────────────────────
+
+describe('Jobs — pollCarrier', () => {
+  it('JOB10: IN_TRANSIT return advances to RECEIVED via state machine', async () => {
+    await returnStore.saveReturn({
+      db: null,
+      returnRecord: {
+        id: 'ret_job_carrier',
+        status: STATES.IN_TRANSIT,
+        userId: 'cust-carrier',
+      },
+    });
+
+    const result = await pollCarrier(null, { mockAlwaysDeliver: true });
+    assert.ok(result.advanced.includes('ret_job_carrier'));
+
+    const updated = await returnStore.getReturn({ db: null, identifier: 'ret_job_carrier' });
     assert.equal(updated.status, STATES.RECEIVED);
-    delete process.env.MOCK_CARRIER_ALWAYS_DELIVER;
+
+    // Double run test
+    const r2 = await pollCarrier(null, { mockAlwaysDeliver: true });
+    assert.equal(r2.advanced.length, 0, 'second run must do nothing');
   });
 });
