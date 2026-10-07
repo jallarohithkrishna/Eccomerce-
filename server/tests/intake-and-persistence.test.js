@@ -32,46 +32,116 @@ function createMockFirestore() {
     orders:  new Map(), // docId -> data
   };
 
+  function getDocRef(colName, docId) {
+    if (!store[colName]) store[colName] = new Map();
+    const colMap = store[colName];
+
+    return {
+      id: docId,
+      async get() {
+        const item = colMap.get(docId);
+        const data = item ? { ...item } : undefined;
+        if (data) delete data._subcollections;
+        return {
+          exists: Boolean(item),
+          id: docId,
+          data: () => data,
+        };
+      },
+      async set(data, options = {}) {
+        const existing = colMap.get(docId) || { _subcollections: {} };
+        const subcollections = existing._subcollections || {};
+        if (options.merge && colMap.has(docId)) {
+          colMap.set(docId, { ...existing, ...data, _subcollections: subcollections });
+        } else {
+          colMap.set(docId, { ...data, _subcollections: subcollections });
+        }
+      },
+      collection(subColName) {
+        let existing = colMap.get(docId);
+        if (!existing) {
+          existing = { _subcollections: {} };
+          colMap.set(docId, existing);
+        }
+        if (!existing._subcollections) existing._subcollections = {};
+        if (!existing._subcollections[subColName]) existing._subcollections[subColName] = new Map();
+        const subMap = existing._subcollections[subColName];
+
+        return {
+          doc(subDocId) {
+            return {
+              id: subDocId,
+              async get() {
+                const subData = subMap.get(subDocId);
+                return {
+                  exists: Boolean(subData),
+                  id: subDocId,
+                  data: () => (subData ? { ...subData } : undefined),
+                };
+              },
+              async set(data) {
+                subMap.set(subDocId, { ...data });
+              }
+            };
+          },
+          async add(subData) {
+            const autoId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            subMap.set(autoId, { ...subData, id: autoId });
+            return { id: autoId };
+          },
+          orderBy(field, dir = 'asc') {
+            return {
+              async get() {
+                const docs = [];
+                for (const [id, data] of subMap.entries()) {
+                  docs.push({ id, data: () => ({ ...data }) });
+                }
+                docs.sort((a, b) => {
+                  const valA = a.data()[field];
+                  const valB = b.data()[field];
+                  if (valA < valB) return dir === 'asc' ? -1 : 1;
+                  if (valA > valB) return dir === 'asc' ? 1 : -1;
+                  return 0;
+                });
+                return { docs, empty: docs.length === 0 };
+              }
+            };
+          },
+          async get() {
+            const docs = [];
+            for (const [id, data] of subMap.entries()) {
+              docs.push({ id, data: () => ({ ...data }) });
+            }
+            return { docs, empty: docs.length === 0 };
+          }
+        };
+      }
+    };
+  }
+
   const db = {
     _isMock: true,
     _store: store,
+    batch() {
+      const operations = [];
+      return {
+        set(docRef, data, options = {}) {
+          operations.push(() => docRef.set(data, options));
+        },
+        async commit() {
+          for (const op of operations) {
+            await op();
+          }
+        }
+      };
+    },
     collection(colName) {
       if (!store[colName]) store[colName] = new Map();
       const colMap = store[colName];
 
       return {
         doc(docId) {
-          return {
-            async get() {
-              const data = colMap.get(docId);
-              return {
-                exists: Boolean(data),
-                id: docId,
-                data: () => (data ? { ...data } : undefined),
-              };
-            },
-            async set(data, options = {}) {
-              if (options.merge && colMap.has(docId)) {
-                colMap.set(docId, { ...colMap.get(docId), ...data });
-              } else {
-                colMap.set(docId, { ...data });
-              }
-            },
-            collection(subColName) {
-              return {
-                async add(subData) {
-                  return { id: `sub_${Date.now()}` };
-                },
-                orderBy() {
-                  return {
-                    async get() {
-                      return { docs: [] };
-                    }
-                  };
-                }
-              };
-            }
-          };
+          return getDocRef(colName, docId);
         },
         where(field, op, val) {
           return {
@@ -81,7 +151,9 @@ function createMockFirestore() {
                   const matches = [];
                   for (const [id, data] of colMap.entries()) {
                     if (data[field] === val) {
-                      matches.push({ id, data: () => ({ ...data }) });
+                      const cleanData = { ...data };
+                      delete cleanData._subcollections;
+                      matches.push({ id, data: () => cleanData });
                       if (matches.length >= n) break;
                     }
                   }
@@ -93,7 +165,9 @@ function createMockFirestore() {
               const matches = [];
               for (const [id, data] of colMap.entries()) {
                 if (data[field] === val) {
-                  matches.push({ id, data: () => ({ ...data }) });
+                  const cleanData = { ...data };
+                  delete cleanData._subcollections;
+                  matches.push({ id, data: () => cleanData });
                 }
               }
               return { docs: matches, empty: matches.length === 0 };
@@ -105,7 +179,9 @@ function createMockFirestore() {
             async get() {
               const matches = [];
               for (const [id, data] of colMap.entries()) {
-                matches.push({ id, data: () => ({ ...data }) });
+                const cleanData = { ...data };
+                delete cleanData._subcollections;
+                matches.push({ id, data: () => cleanData });
                 if (matches.length >= n) break;
               }
               return { docs: matches, empty: matches.length === 0 };
@@ -633,5 +709,72 @@ describe('3. Firestore Branch & Persistence Requirements', () => {
     assert.ok(matchedReturn);
     assert.equal(matchedReturn.status, 'APPROVED');
     assert.equal(matchedReturn.status_label, 'RMA Approved');
+  });
+
+  it('Audit events are written to returns/{id}/events in the same batch and verified via GET /returns/:id/audit after cold start', async () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    await returnStore.seedOrder({
+      db: mockDb,
+      order: {
+        id: 'ord_audit_batch',
+        userId: 'cust-audit-batch',
+        customer: { user_id: 'cust-audit-batch' },
+        status: 'delivered',
+        delivered_at: twoDaysAgo,
+        items: [{ id: 'p_aud', product_id: 'p_aud', name: 'Camera', price: 3200, quantity: 1, category: 'standard' }],
+      }
+    });
+
+    // 1. Create return intake
+    const intakeRes = await req('/returns/intake', {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-audit-batch', 'x-dev-role': 'customer' },
+      body: { orderId: 'ord_audit_batch', productId: 'p_aud', reason: 'unwanted' },
+    });
+    assert.equal(intakeRes.status, 201);
+    const returnId = intakeRes.data.returnRecord.id;
+
+    // Verify subcollection event 000001 was written in Firestore
+    const returnDocInFs = mockDb._store.returns.get(returnId);
+    assert.ok(returnDocInFs, 'return document must exist in Firestore');
+    const eventsMap = returnDocInFs._subcollections?.events;
+    assert.ok(eventsMap, 'events subcollection must exist in Firestore');
+    const ev1 = eventsMap.get('000001');
+    assert.ok(ev1, 'event 000001 must exist in Firestore');
+    assert.equal(ev1.seq, 1);
+    assert.equal(ev1.prevHash, '0'.repeat(64));
+    assert.ok(ev1.hash, 'event hash must be present');
+    assert.equal(ev1.action, 'RETURN_REQUESTED');
+
+    // 2. Staff approves return
+    const approveRes = await req(`/agent/returns/${returnId}/approve`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'staff-aud', 'x-dev-role': 'staff' },
+    });
+    assert.equal(approveRes.status, 200);
+
+    const ev2 = eventsMap.get('000002');
+    assert.ok(ev2, 'event 000002 must exist in Firestore');
+    assert.equal(ev2.seq, 2);
+    assert.equal(ev2.prevHash, ev1.hash);
+    assert.ok(ev2.hash, 'event 2 hash must be present');
+    assert.equal(ev2.action, 'STAFF_APPROVED');
+
+    // 3. Complete cold start (wipe in-memory maps)
+    returnStore._clearAll();
+
+    // 4. Read back via GET /returns/:id/audit and run verifyChain
+    const auditRes = await req(`/returns/${returnId}/audit`, {
+      method: 'GET',
+      headers: { 'x-dev-uid': 'cust-audit-batch', 'x-dev-role': 'customer' },
+    });
+    assert.equal(auditRes.status, 200);
+    assert.equal(auditRes.data.chainValid, true);
+    assert.equal(auditRes.data.eventCount, 2);
+    assert.equal(auditRes.data.events[0].seq, 1);
+    assert.equal(auditRes.data.events[0].prevHash, '0'.repeat(64));
+    assert.equal(auditRes.data.events[1].seq, 2);
+    assert.equal(auditRes.data.events[1].prevHash, auditRes.data.events[0].hash);
+    assert.equal(auditRes.data.verification.valid, true);
   });
 });

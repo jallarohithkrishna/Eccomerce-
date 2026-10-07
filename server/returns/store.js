@@ -147,8 +147,9 @@ export async function generateUniqueRma({ db, maxAttempts = 10 } = {}) {
 
 /**
  * Save or insert a return record. Syncs to both returns and orders collections.
+ * If an audit event is supplied, it is written in the same Firestore batch as the return write.
  */
-export async function saveReturn({ db, returnRecord }) {
+export async function saveReturn({ db, returnRecord, event }) {
   const id = returnRecord.id || returnRecord.returnId;
   if (!id) throw new Error('returnRecord requires an id');
 
@@ -165,6 +166,29 @@ export async function saveReturn({ db, returnRecord }) {
   returnRecords.set(id, record);
   if (record.rma_number) {
     rmaToIdMap.set(record.rma_number.toUpperCase(), id);
+  }
+
+  // Handle audit event if passed
+  let eventRecord = null;
+  if (event) {
+    let chain = returnEvents.get(id);
+    if (!chain && shouldSync(db)) {
+      chain = await getAuditEvents({ db, returnId: id });
+    }
+    chain = chain || [];
+    const seq = event.seq || (chain.length + 1);
+    const prevHash = event.prevHash || event.previousHash || (chain.length > 0 ? chain[chain.length - 1].hash : GENESIS_HASH);
+    eventRecord = {
+      ...event,
+      returnId: id,
+      seq,
+      prevHash,
+      previousHash: prevHash,
+    };
+    if (!chain.some(e => e.hash === eventRecord.hash)) {
+      chain.push(eventRecord);
+    }
+    returnEvents.set(id, chain);
   }
 
   // 1. Sync to in-memory order record if present
@@ -186,10 +210,27 @@ export async function saveReturn({ db, returnRecord }) {
     orderRecords.set(orderId, order);
   }
 
-  // 2. Sync to Firestore (both `returns` and `orders` collections)
+  // 2. Sync to Firestore (both `returns` and `orders` collections, and `returns/{id}/events` in same batch)
   if (shouldSync(db)) {
     try {
-      await db.collection('returns').doc(id).set(record, { merge: true });
+      if (typeof db.batch === 'function') {
+        const batch = db.batch();
+        const returnRef = db.collection('returns').doc(id);
+        batch.set(returnRef, record, { merge: true });
+
+        if (eventRecord) {
+          const seqStr = String(eventRecord.seq).padStart(6, '0');
+          const eventRef = returnRef.collection('events').doc(seqStr);
+          batch.set(eventRef, eventRecord);
+        }
+        await batch.commit();
+      } else {
+        await db.collection('returns').doc(id).set(record, { merge: true });
+        if (eventRecord) {
+          const seqStr = String(eventRecord.seq).padStart(6, '0');
+          await db.collection('returns').doc(id).collection('events').doc(seqStr).set(eventRecord);
+        }
+      }
     } catch (err) {
       console.warn(`Firestore saveReturn error (${id}):`, err.message);
     }
@@ -303,13 +344,29 @@ export async function listReturns({ db, status, limitN = 50 }) {
  * Add an audit event to a return's chain.
  */
 export async function appendAuditEvent({ db, returnId, event }) {
-  const chain = returnEvents.get(returnId) || [];
-  chain.push(event);
+  let chain = returnEvents.get(returnId);
+  if (!chain && shouldSync(db)) {
+    chain = await getAuditEvents({ db, returnId });
+  }
+  chain = chain || [];
+  const seq = event.seq || (chain.length + 1);
+  const prevHash = event.prevHash || event.previousHash || (chain.length > 0 ? chain[chain.length - 1].hash : GENESIS_HASH);
+  const eventRecord = {
+    ...event,
+    returnId,
+    seq,
+    prevHash,
+    previousHash: prevHash,
+  };
+  if (!chain.some(e => e.hash === eventRecord.hash)) {
+    chain.push(eventRecord);
+  }
   returnEvents.set(returnId, chain);
 
   if (shouldSync(db)) {
     try {
-      await db.collection('returns').doc(returnId).collection('events').add(event);
+      const seqStr = String(seq).padStart(6, '0');
+      await db.collection('returns').doc(returnId).collection('events').doc(seqStr).set(eventRecord);
     } catch (err) {
       console.warn(`Firestore appendAuditEvent error (${returnId}):`, err.message);
     }
@@ -327,10 +384,26 @@ export async function getAuditEvents({ db, returnId }) {
 
   if (shouldSync(db)) {
     try {
-      const snap = await db.collection('returns').doc(returnId).collection('events')
-        .orderBy('timestamp', 'asc')
-        .get();
-      const events = snap.docs.map(d => d.data());
+      let snap;
+      try {
+        snap = await db.collection('returns').doc(returnId).collection('events')
+          .orderBy('seq', 'asc')
+          .get();
+      } catch {
+        snap = await db.collection('returns').doc(returnId).collection('events')
+          .orderBy('timestamp', 'asc')
+          .get();
+      }
+      const events = snap.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          previousHash: data.previousHash || data.prevHash,
+          prevHash: data.prevHash || data.previousHash,
+        };
+      });
+      // Sort in-memory as safety net
+      events.sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
       returnEvents.set(returnId, events);
       return events;
     } catch (err) {

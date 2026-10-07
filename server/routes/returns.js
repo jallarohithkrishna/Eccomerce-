@@ -80,6 +80,8 @@ export function createReturnsRouter(db) {
   // ── Helper to create and append an audit event ────────────────────────────
   async function logAudit({ returnId, actor, action, data }) {
     const prevHash = await returnStore.getLatestEventHash({ db, returnId });
+    const events = await returnStore.getAuditEvents({ db, returnId });
+    const seq = events.length + 1;
     const ev = createEvent({
       returnId,
       previousHash: prevHash || GENESIS_HASH,
@@ -87,8 +89,28 @@ export function createReturnsRouter(db) {
       action,
       data: data || {},
     });
+    ev.seq = seq;
+    ev.prevHash = ev.previousHash;
     await returnStore.appendAuditEvent({ db, returnId, event: ev });
     return ev;
+  }
+
+  async function saveWithAudit({ returnRecord, actor, action, data }) {
+    const returnId = returnRecord.id || returnRecord.returnId;
+    const prevHash = await returnStore.getLatestEventHash({ db, returnId });
+    const events = await returnStore.getAuditEvents({ db, returnId });
+    const seq = events.length + 1;
+    const ev = createEvent({
+      returnId,
+      previousHash: prevHash || GENESIS_HASH,
+      actor: actor || 'system',
+      action,
+      data: data || {},
+    });
+    ev.seq = seq;
+    ev.prevHash = ev.previousHash;
+    const updated = await returnStore.saveReturn({ db, returnRecord, event: ev });
+    return { updated, auditEvent: ev };
   }
 
   function shouldSync(db) {
@@ -307,10 +329,8 @@ export function createReturnsRouter(db) {
           updatedAt: new Date().toISOString(),
         };
 
-        await returnStore.saveReturn({ db, returnRecord });
-
-        await logAudit({
-          returnId,
+        const { updated: finalRecord } = await saveWithAudit({
+          returnRecord,
           actor: uid,
           action: 'RETURN_REQUESTED',
           data: {
@@ -323,7 +343,7 @@ export function createReturnsRouter(db) {
           }
         });
 
-        res.status(201).json({ success: true, returnRecord });
+        res.status(201).json({ success: true, returnRecord: finalRecord });
       } catch (err) {
         console.error('Intake error:', err);
         res.status(500).json({ error: 'Failed to process return intake', detail: err.message });
@@ -494,8 +514,14 @@ export function createReturnsRouter(db) {
 
       const analysisResult = await analyzeEvidence({ imageBuffer: req.file.buffer, mimeType });
 
-      const ev = await logAudit({
-        returnId: record.id,
+      const { updated, auditEvent: ev } = await saveWithAudit({
+        returnRecord: {
+          ...record,
+          id: record.id,
+          photo_evidence_hash: analysisResult.hash,
+          photo_verified: analysisResult.verified,
+          photo_analysis: analysisResult.analysis,
+        },
         actor: uid,
         action: 'EVIDENCE_UPLOADED',
         data: {
@@ -503,17 +529,6 @@ export function createReturnsRouter(db) {
           mimeType,
           sizeBytes: analysisResult.sizeBytes,
           verified: analysisResult.verified,
-        }
-      });
-
-      const updated = await returnStore.saveReturn({
-        db,
-        returnRecord: {
-          ...record,
-          id: record.id,
-          photo_evidence_hash: analysisResult.hash,
-          photo_verified: analysisResult.verified,
-          photo_analysis: analysisResult.analysis,
         }
       });
 
@@ -563,8 +578,7 @@ export function createReturnsRouter(db) {
       return res.status(409).json({ error: e.message });
     }
 
-    const updated = await returnStore.saveReturn({
-      db,
+    const { updated } = await saveWithAudit({
       returnRecord: {
         ...record,
         id: record.id,
@@ -572,11 +586,7 @@ export function createReturnsRouter(db) {
         status_label: 'Needs Human Review (Appealed)',
         appealReason: parsed.data.reason,
         appealedAt: new Date().toISOString(),
-      }
-    });
-
-    await logAudit({
-      returnId: record.id,
+      },
       actor: uid,
       action: 'APPEAL_FILED',
       data: { reason: parsed.data.reason, from: record.status, to: STATES.HUMAN_REVIEW }
@@ -613,8 +623,7 @@ export function createReturnsRouter(db) {
       return res.status(409).json({ error: e.message });
     }
 
-    const updated = await returnStore.saveReturn({
-      db,
+    const { updated } = await saveWithAudit({
       returnRecord: {
         ...record,
         id: record.id,
@@ -622,11 +631,7 @@ export function createReturnsRouter(db) {
         status_label: 'RMA Approved',
         approved_by: req.user.uid,
         approved_at: new Date().toISOString(),
-      }
-    });
-
-    await logAudit({
-      returnId: record.id,
+      },
       actor: req.user.uid,
       action: 'STAFF_APPROVED',
       data: { from: current, to: STATES.APPROVED }
@@ -655,8 +660,7 @@ export function createReturnsRouter(db) {
       return res.status(409).json({ error: e.message });
     }
 
-    const updated = await returnStore.saveReturn({
-      db,
+    const { updated } = await saveWithAudit({
       returnRecord: {
         ...record,
         id: record.id,
@@ -665,11 +669,7 @@ export function createReturnsRouter(db) {
         rejected_by: req.user.uid,
         rejection_reason: reason,
         rejected_at: new Date().toISOString(),
-      }
-    });
-
-    await logAudit({
-      returnId: record.id,
+      },
       actor: req.user.uid,
       action: 'STAFF_DENIED',
       data: { from: current, to: STATES.REJECTED, reason }
@@ -711,8 +711,7 @@ export function createReturnsRouter(db) {
       return res.status(409).json({ error: e.message });
     }
 
-    const updated = await returnStore.saveReturn({
-      db,
+    const { updated } = await saveWithAudit({
       returnRecord: {
         ...record,
         id: record.id,
@@ -721,11 +720,7 @@ export function createReturnsRouter(db) {
         override_by: req.user.uid,
         override_reason: reason,
         override_at: new Date().toISOString(),
-      }
-    });
-
-    await logAudit({
-      returnId: record.id,
+      },
       actor: req.user.uid,
       action: 'STAFF_OVERRIDE',
       data: { from: current, to: targetStatus, reason }
@@ -749,8 +744,7 @@ export function createReturnsRouter(db) {
       });
     }
 
-    const updated = await returnStore.saveReturn({
-      db,
+    const { updated } = await saveWithAudit({
       returnRecord: {
         ...record,
         id: record.id,
@@ -758,11 +752,7 @@ export function createReturnsRouter(db) {
         status_label: 'Received at Warehouse',
         warehouse_received_at: new Date().toISOString(),
         received_by: req.user.uid,
-      }
-    });
-
-    await logAudit({
-      returnId: record.id,
+      },
       actor: req.user.uid,
       action: 'WAREHOUSE_RECEIVED',
       data: { from: current, to: STATES.RECEIVED }
@@ -850,8 +840,7 @@ export function createReturnsRouter(db) {
       }
     }
 
-    const updated = await returnStore.saveReturn({
-      db,
+    const { updated } = await saveWithAudit({
       returnRecord: {
         ...inspectionStart,
         id: record.id,
@@ -862,11 +851,7 @@ export function createReturnsRouter(db) {
         inspected_by: req.user.uid,
         inspected_at: new Date().toISOString(),
         refund_record: refundRecord,
-      }
-    });
-
-    await logAudit({
-      returnId: record.id,
+      },
       actor: req.user.uid,
       action: passed ? 'WAREHOUSE_INSPECTION_PASSED' : 'WAREHOUSE_INSPECTION_FAILED',
       data: {
@@ -934,8 +919,7 @@ export function createReturnsRouter(db) {
       }
     }
 
-    const updated = await returnStore.saveReturn({
-      db,
+    const { updated } = await saveWithAudit({
       returnRecord: {
         ...record,
         id: record.id,
@@ -944,11 +928,7 @@ export function createReturnsRouter(db) {
         carrier_tracking: trackingNumber || record.pickup_details?.tracking_number,
         last_carrier_status: carrierStatus,
         last_carrier_update: new Date().toISOString(),
-      }
-    });
-
-    await logAudit({
-      returnId: record.id,
+      },
       actor: 'carrier_webhook',
       action: 'CARRIER_STATUS_UPDATE',
       data: { carrierStatus, trackingNumber, from: current, to: targetStatus }
