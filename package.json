@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint src",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npm --prefix server test",
+    "test:persistence": "npm --prefix server run test:persistence"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
