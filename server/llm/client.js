@@ -1,60 +1,70 @@
 /**
- * Provider-agnostic LLM Client — PS-01
+ * Provider-agnostic LLM Client — PS-01 Hardened
  * OpenAI-compatible function calling via HTTP.
  * Supports: OpenAI, Groq, Together, or any OpenAI-compat endpoint.
- * Set LLM_BASE_URL + LLM_API_KEY + LLM_MODEL in server/.env
+ * Configured exclusively via environment variables:
+ *   LLM_BASE_URL, LLM_MODEL, LLM_FALLBACK_MODEL, LLM_API_KEY, LLM_TIMEOUT_MS
+ *
+ * Hardening features:
+ * - Dynamic env resolution (no hardcoded keys)
+ * - Safe error handling: API keys are never exposed in error messages or logs
+ * - AbortController timeout (default 18s)
+ * - Automatic retry with exponential backoff on HTTP 429 and 5xx errors
+ * - Automatic fallback model switching on primary model exhaustion
  */
-
-const LLM_BASE_URL = process.env.LLM_BASE_URL || 'https://api.openai.com/v1';
-const LLM_API_KEY  = process.env.LLM_API_KEY  || process.env.OPENAI_API_KEY || '';
-const LLM_MODEL    = process.env.LLM_MODEL    || 'gpt-4o-mini';
-const LLM_TIMEOUT  = parseInt(process.env.LLM_TIMEOUT_MS || '18000', 10);
 
 export const PROMPT_VERSION = 'v1.0';
 
 /**
- * Call the LLM with messages and optional tool definitions.
- * Returns the raw choice object { message, finish_reason }.
- *
- * @param {Object} params
- * @param {Array}  params.messages   - OpenAI chat messages array
- * @param {Array}  [params.tools]    - OpenAI function tool definitions
- * @param {string} [params.model]    - Override model
- * @param {number} [params.maxTokens]
- * @param {number} [params.temperature]
- * @returns {Promise<{message: Object, finish_reason: string, usage: Object}>}
+ * Custom error class for LLM failures that strips any sensitive API keys.
  */
-export async function callLLM({ messages, tools = [], model, maxTokens = 512, temperature = 0 }) {
-  if (!LLM_API_KEY) throw new LLMError('LLM_API_KEY is not configured', 'CONFIG_ERROR');
+export class LLMError extends Error {
+  constructor(message, code, status) {
+    const sanitized = String(message || '')
+      .replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, 'Bearer [REDACTED]')
+      .replace(/key=[A-Za-z0-9_\-\.]+/gi, 'key=[REDACTED]');
+    super(sanitized);
+    this.name = 'LLMError';
+    this.code = code || 'LLM_ERROR';
+    this.status = status;
+  }
+}
 
+/**
+ * Execute a single HTTP call to the completions endpoint.
+ */
+async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, maxTokens, temperature, timeoutMs, fetchImpl }) {
+  const customFetch = fetchImpl || fetch;
   const body = {
-    model:       model || LLM_MODEL,
+    model,
     messages,
     temperature,
-    max_tokens:  maxTokens,
+    max_tokens: maxTokens,
   };
 
-  if (tools.length > 0) {
-    body.tools      = tools;
+  if (tools && tools.length > 0) {
+    body.tools = tools;
     body.tool_choice = 'auto';
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
-    response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-      method:  'POST',
+    response = await customFetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
       headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${LLM_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
       },
-      body:   JSON.stringify(body),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch (err) {
-    if (err.name === 'AbortError') throw new LLMError('LLM request timed out', 'TIMEOUT');
+    if (err.name === 'AbortError') {
+      throw new LLMError(`LLM request timed out after ${timeoutMs}ms`, 'TIMEOUT');
+    }
     throw new LLMError(`Network error: ${err.message}`, 'NETWORK_ERROR');
   } finally {
     clearTimeout(timer);
@@ -62,49 +72,124 @@ export async function callLLM({ messages, tools = [], model, maxTokens = 512, te
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new LLMError(`LLM API error ${response.status}: ${text}`, 'API_ERROR', response.status);
+    throw new LLMError(`LLM API error (${model}) ${response.status}: ${text}`, 'API_ERROR', response.status);
   }
 
   const json = await response.json();
   const choice = json.choices?.[0];
-  if (!choice) throw new LLMError('Empty response from LLM', 'EMPTY_RESPONSE');
+  if (!choice) throw new LLMError(`Empty response from LLM model ${model}`, 'EMPTY_RESPONSE');
 
   return {
-    message:       choice.message,
+    message: choice.message,
     finish_reason: choice.finish_reason,
-    usage:         json.usage || {},
+    usage: json.usage || {},
+    modelUsed: model,
   };
 }
 
 /**
- * Classify whether a user message is in scope (returns/refunds/exchanges/order-status).
- * Returns { inScope: boolean, confidence: 'high'|'low' }
- * Uses a cheap single-message call with a binary system prompt.
+ * Call the LLM with retry, backoff, and fallback model support.
+ *
+ * @param {Object} params
+ * @param {Array}  params.messages
+ * @param {Array}  [params.tools]
+ * @param {string} [params.model]
+ * @param {string} [params.fallbackModel]
+ * @param {number} [params.maxTokens]
+ * @param {number} [params.temperature]
+ * @param {number} [params.timeoutMs]
+ * @param {number} [params.maxRetries] - retries per model on 429/5xx (default 2)
+ * @param {Function} [params.fetchImpl] - custom fetch implementation for testing
+ * @returns {Promise<{message: Object, finish_reason: string, usage: Object, modelUsed: string}>}
  */
-export async function classifyScope(userMessage) {
+export async function callLLM({
+  messages,
+  tools = [],
+  model,
+  fallbackModel,
+  maxTokens = 512,
+  temperature = 0,
+  timeoutMs,
+  maxRetries = 2,
+  fetchImpl,
+} = {}) {
+  const baseUrl       = process.env.LLM_BASE_URL || 'https://api.openai.com/v1';
+  const apiKey        = process.env.LLM_API_KEY  || process.env.OPENAI_API_KEY || '';
+  const primaryModel  = model || process.env.LLM_MODEL || 'gpt-4o-mini';
+  const fallback      = fallbackModel || process.env.LLM_FALLBACK_MODEL || '';
+  const effectiveTimeout = timeoutMs || parseInt(process.env.LLM_TIMEOUT_MS || '18000', 10);
+
+  if (!apiKey) {
+    throw new LLMError('LLM_API_KEY is not configured', 'CONFIG_ERROR');
+  }
+
+  const modelsToTry = [primaryModel];
+  if (fallback && fallback !== primaryModel) {
+    modelsToTry.push(fallback);
+  }
+
+  let lastError = null;
+
+  for (const currentModel of modelsToTry) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await _singleChatCall({
+          baseUrl,
+          apiKey,
+          model: currentModel,
+          messages,
+          tools,
+          maxTokens,
+          temperature,
+          timeoutMs: effectiveTimeout,
+          fetchImpl,
+        });
+        return result;
+      } catch (err) {
+        lastError = err;
+
+        // Check if retryable (429 rate-limited or 5xx server errors)
+        const isRetryableStatus = err.status === 429 || (err.status >= 500 && err.status <= 599);
+        const isTimeout = err.code === 'TIMEOUT' || err.code === 'NETWORK_ERROR';
+        const canRetry = (isRetryableStatus || isTimeout) && attempt < maxRetries;
+
+        if (canRetry) {
+          const backoffDelay = Math.min(50 * Math.pow(2, attempt), 1000);
+          await new Promise(r => setTimeout(r, backoffDelay));
+          continue;
+        }
+
+        // Break inner retry loop to try next fallback model
+        break;
+      }
+    }
+  }
+
+  throw lastError || new LLMError('Failed to obtain response from LLM', 'CALL_FAILED');
+}
+
+/**
+ * Classify whether a user message is in scope.
+ */
+export async function classifyScope(userMessage, { llmOverride } = {}) {
   const keywords = [
     'return', 'refund', 'exchange', 'replace', 'replacement', 'damaged', 'defect',
     'defective', 'broken', 'wrong item', 'not delivered', 'missing', 'spoiled',
     'pickup', 'rma', 'appeal', 'escalate', 'order status', 'return status',
     'where is my return', 'money back', 'store credit',
-    // additional in-scope signals
     'my order', 'my orders', 'recent order', 'order list', 'order id',
     'speak to', 'human agent', 'specialist', 'human help', 'real person',
     'arrived', 'leaking', 'leaked', 'cracked', 'dented', 'not working',
     'help with a return', 'help with return', 'i need help', 'can you help',
     'moisturizer', 'lotion', 'cream', 'cosmetic', 'product issue',
-    // multilingual keywords (Hindi, Telugu, etc.)
     'वापस', 'वापसी', 'पैसे वापस', 'खराब', 'टूट', 'सामान', 'ऑर्डर',
     'రిటర్న్', 'వాపస్', 'డబ్బులు', 'పాడైపోయింది', 'ఆర్డర్',
   ];
-  const lower = userMessage.toLowerCase();
+  const lower = String(userMessage || '').toLowerCase();
   const keywordHit = keywords.some(k => lower.includes(k));
 
-  // Fast-path: clear keyword hit → in scope without LLM call
   if (keywordHit) return { inScope: true, confidence: 'high' };
 
-  // Clear off-topic patterns — only fire on obviously unrelated content
-  // Pattern must NOT match sentences that could be about returns/orders
   const offTopicPatterns = [
     /^(what is the weather|what'?s the weather)/i,
     /\b(stock price|recipe|joke|poem|song|movie recommendation|sport score|news headline|politics|covid vaccine|flight price)\b/i,
@@ -115,11 +200,13 @@ export async function classifyScope(userMessage) {
     return { inScope: false, confidence: 'high' };
   }
 
-  // Ambiguous — ask LLM for a single-word answer. If no key, fail open so legitimate queries aren't blocked.
-  if (!LLM_API_KEY) return { inScope: true, confidence: 'low' };
+  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';
+  if (!apiKey && !llmOverride) return { inScope: true, confidence: 'low' };
+
+  const llmCall = llmOverride || callLLM;
 
   try {
-    const { message } = await callLLM({
+    const { message } = await llmCall({
       messages: [
         {
           role: 'system',
@@ -133,16 +220,6 @@ export async function classifyScope(userMessage) {
     const ans = (message.content || '').trim().toUpperCase();
     return { inScope: ans === 'YES', confidence: 'low' };
   } catch {
-    // If LLM fails the scope check, allow through (fail open so genuine returns aren't blocked)
     return { inScope: true, confidence: 'low' };
-  }
-}
-
-export class LLMError extends Error {
-  constructor(message, code, status) {
-    super(message);
-    this.name = 'LLMError';
-    this.code = code;
-    this.status = status;
   }
 }

@@ -150,12 +150,42 @@ export function snapshot(conversationId) {
   };
 }
 
+/** @type {Map<string, number>} key: `${uid}:${dateStr}` -> count */
+const dailyUsage = new Map();
+
+/**
+ * Check and increment daily request cap for a user.
+ * @param {string} uid
+ * @param {object} [opts]
+ * @param {number} [opts.cap]
+ * @param {string} [opts.date]
+ * @returns {{ allowed: boolean, current: number, cap: number }}
+ */
+export function checkAndIncrementDailyUsage(uid, {
+  cap = parseInt(process.env.AGENT_DAILY_CAP || '40', 10),
+  date = new Date().toISOString().slice(0, 10),
+} = {}) {
+  const key = `${uid}:${date}`;
+  const current = dailyUsage.get(key) || 0;
+  if (current >= cap) {
+    return { allowed: false, current, cap };
+  }
+  dailyUsage.set(key, current + 1);
+  return { allowed: true, current: current + 1, cap };
+}
+
+export function getDailyUsage(uid, date = new Date().toISOString().slice(0, 10)) {
+  return dailyUsage.get(`${uid}:${date}`) || 0;
+}
+
 /** Delete a session (for tests / cleanup). */
 export function destroy(conversationId) {
   store.delete(conversationId);
 }
 
-/** For tests: clear all sessions. */
+/** For tests: clear all sessions and daily usage. */
 export function _clearAll() {
   store.clear();
+  dailyUsage.clear();
 }
+
