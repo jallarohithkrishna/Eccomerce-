@@ -6,7 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { 
   RotateCcw, Sparkles, Package, Clock, CheckCircle2, 
   Truck, ArrowRight, ShieldCheck, QrCode, AlertTriangle, 
-  ExternalLink, ChevronRight, FileText, Activity, CreditCard
+  ExternalLink, ChevronRight, FileText, Activity, CreditCard,
+  MessageSquare, ChevronDown, ChevronUp
 } from 'lucide-react';
 import AiReturnAssistant from '../components/AiReturnAssistant';
 import QRCodeDisplay from '../components/QRCodeDisplay';
@@ -26,6 +27,45 @@ export default function Returns() {
   const [returnsList, setReturnsList] = useState([]);
   const [loadingReturns, setLoadingReturns] = useState(true);
   const [selectedReturnForAudit, setSelectedReturnForAudit] = useState(null);
+
+  // Message Thread State for open return (one listener only, unsubscribes on close)
+  const [openThreadReturnId, setOpenThreadReturnId] = useState(null);
+  const [threadMessages, setThreadMessages] = useState([]);
+  const [loadingThreadMessages, setLoadingThreadMessages] = useState(false);
+
+  useEffect(() => {
+    if (!openThreadReturnId) {
+      setThreadMessages([]);
+      setLoadingThreadMessages(false);
+      return;
+    }
+
+    setLoadingThreadMessages(true);
+    const messagesRef = collection(db, 'returns', openThreadReturnId, 'messages');
+    const unsubscribe = onSnapshot(messagesRef, (snapshot) => {
+      const msgs = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+
+      // Sort messages chronologically
+      msgs.sort((a, b) => {
+        const timeA = new Date(a.timestamp || a.createdAt || 0).getTime();
+        const timeB = new Date(b.timestamp || b.createdAt || 0).getTime();
+        return timeA - timeB;
+      });
+
+      setThreadMessages(msgs);
+      setLoadingThreadMessages(false);
+    }, (err) => {
+      console.warn('Error reading return messages:', err.message);
+      setLoadingThreadMessages(false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [openThreadReturnId]);
 
   // Return Modal State for existing QR and tracking
   const [modalOrderForReturn, setModalOrderForReturn] = useState(null);
@@ -317,7 +357,21 @@ export default function Returns() {
                         </div>
 
                         {/* Top Action Buttons */}
-                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setOpenThreadReturnId(openThreadReturnId === ret.id ? null : ret.id)}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-xl border shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer ${
+                              openThreadReturnId === ret.id
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-indigo-200'
+                            }`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Messages &amp; Updates</span>
+                            {openThreadReturnId === ret.id ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
+                          </button>
+
                           <button
                             onClick={() => setSelectedReturnForAudit(ret)}
                             className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs flex items-center gap-1 transition-colors"
@@ -433,6 +487,77 @@ export default function Returns() {
                           })}
                         </div>
                       </div>
+
+                      {/* Real-time Message Thread Subcollection (returns/{id}/messages) */}
+                      {openThreadReturnId === ret.id && (
+                        <div className="border-t border-slate-200 bg-slate-50/90 p-4 sm:p-5">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <MessageSquare className="w-4 h-4 text-primary-600" />
+                              <h4 className="text-xs font-bold text-slate-900">
+                                Official Case Updates &amp; Notification Thread ({ret.rma_number || ret.id})
+                              </h4>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setOpenThreadReturnId(null)}
+                              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                            >
+                              Close thread
+                            </button>
+                          </div>
+
+                          {loadingThreadMessages ? (
+                            <div className="py-6 text-center text-xs text-slate-400">Loading messages...</div>
+                          ) : threadMessages.length === 0 ? (
+                            <div className="py-6 text-center text-xs text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">
+                              No communication messages logged yet for this return.
+                            </div>
+                          ) : (
+                            <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                              {threadMessages.map((msg, mIdx) => {
+                                const isSystem = msg.sender === 'system' || msg.type === 'notification';
+                                const isStaff = msg.senderRole === 'staff' || msg.senderRole === 'admin';
+                                return (
+                                  <div
+                                    key={msg.id || mIdx}
+                                    className={`p-3 rounded-xl border text-xs ${
+                                      isSystem
+                                        ? 'bg-white border-slate-200/90 shadow-2xs'
+                                        : isStaff
+                                        ? 'bg-blue-50/80 border-blue-200 text-blue-950'
+                                        : 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                                          isSystem
+                                            ? 'bg-slate-100 text-slate-700'
+                                            : isStaff
+                                            ? 'bg-blue-100 text-blue-700'
+                                            : 'bg-emerald-100 text-emerald-700'
+                                        }`}>
+                                          {isSystem ? 'System Notice' : (msg.senderRole || 'Customer')}
+                                        </span>
+                                        {msg.subject && (
+                                          <span className="font-bold text-slate-900 text-xs">{msg.subject}</span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 shrink-0">
+                                        {msg.createdAt || msg.timestamp ? new Date(msg.createdAt || msg.timestamp).toLocaleString() : ''}
+                                      </span>
+                                    </div>
+                                    <p className="text-slate-700 text-xs leading-relaxed mt-1">
+                                      {msg.text || msg.body || msg.message}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
