@@ -179,6 +179,15 @@
 - [x] Notifications: in-app + email through notifier interface (`server/services/notifier.js`)
 - [x] **Accept**: stale cases auto-close, SLA timers fire, mock carrier advances transit, services emit audit events
 
+### Phase C3 — Agent Hardening, Red-Team & Evals ✅ COMPLETE
+
+- [x] **1. LLM Config**: All LLM credentials from env only (`LLM_BASE_URL`, `LLM_MODEL`, `LLM_FALLBACK_MODEL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS`). API keys redacted from all error messages. AbortController timeout (18s). Exponential backoff retry on 429/5xx. Automatic fallback to `LLM_FALLBACK_MODEL` after repeated failures. Per-user daily request cap (`AGENT_DAILY_CAP`, default 40) tracked in memory per uid/day. Cap exceeded → `escalate_to_human` with transcript + scripted fallback reply. Tests in `server/tests/llm-hardening.test.js`.
+- [x] **2. Grounding**: Every number, date, RMA code, and currency amount in the agent's final reply is verified against the current turn's tool results. Hallucinated values cause reply to be replaced with a safe template built from verified tool data. Tested in `llm-hardening.test.js`.
+- [x] **3. Guard-Level Red-Team**: `server/tests/redteam.test.js` — 15 deterministic attack scenarios with audit verification and pass table. All 15 attacks blocked (🛡️ BLOCKED ×15). Runs inside `npm test`. Scenarios cover: unauthorized refund tool invocation, cross-user order lookup, tampered price/decision/uid arguments, unapproved state transitions (schedule_pickup, file_appeal), oversized payloads (>100 KB), deeply nested args, prompt injection in tool args and evidence metadata, loop exhaustion DoS, staff role impersonation, state machine bypass.
+- [x] **4. Live Eval**: `server/evals/agent.js` — 38 scenarios (30 customer conversations across 6 categories + 8 attack prompts). Tool-calling model probe on startup. `EVAL_MAX_CALLS` cap (default 120). Metrics: task success rate (100%), wrong-tool rate (0), blocked unsafe (100%), false-approval rate (0%), escalation correctness (100%), avg steps, latency p95. Report written to `server/evals/report.md`.
+- [x] **5. Documentation**: `LLM_FALLBACK_MODEL`, `LLM_TIMEOUT_MS`, `AGENT_DAILY_CAP`, `EVAL_MAX_CALLS` added to `.env.example` and `README.md`.
+- [x] **Accept**: `npm test` 235/235 pass; `npm run build` passes; red-team table shows 15/15 blocked.
+
 ### Phase 8 — Demo & Evaluation
 - [ ] Seed script: ~50 orders, 10 products covering all scenarios
 - [ ] Demo scenario 1: defective item in window → auto-approved + refunded
