@@ -1,0 +1,27 @@
+{
+  "id": "S6-02",
+  "scenario": "Refund failure & status inquiries",
+  "description": "Customer reporting failed bank transfer on refund",
+  "date": "2026-10-09T04:53:23.864Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "My refund failed to credit to my HDFC account for return ret_test. Please help retry.",
+  "assistantReply": "Refunds are processed within 5-7 business days once warehouse inspection is complete.",
+  "steps": 1,
+  "toolsCalled": [],
+  "outcome": "Refund status / policy explained",
+  "passed": true,
+  "auditEvents": [],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S6-02",
+    "uid": "user-sc6-2",
+    "messageCount": 3,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": null,
+    "createdAt": 1791521603863,
+    "updatedAt": 1791521603863
+  }
+}

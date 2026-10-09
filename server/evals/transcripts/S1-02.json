@@ -1,0 +1,123 @@
+{
+  "id": "S1-02",
+  "scenario": "Defective fashion item in window",
+  "description": "Broken zipper on denim jacket delivered 3 days ago",
+  "date": "2026-10-09T04:53:23.826Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "Need return for TEST-FASHION-OK, product P-SHIRT. Zipper is completely broken. Tags attached.",
+  "assistantReply": "Your return has been approved. RMA code issued.",
+  "steps": 3,
+  "toolsCalled": [
+    "check_eligibility",
+    "create_return"
+  ],
+  "outcome": "Return approved (RMA-3TSEL6HNC2A6)",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "a0297c27589c71692d06001b32ce9e7e14f89b252d62f8cf3a0fb8f167697154",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S1-02",
+      "actor": "agent",
+      "action": "CHECK_ELIGIBILITY",
+      "data": {
+        "inputs": {
+          "order_id": "TEST-FASHION-OK",
+          "product_id": "P-SHIRT",
+          "quantity": 1,
+          "reason": "defect",
+          "tags_attached": true
+        },
+        "outputs": {
+          "eligible": true,
+          "policy_type": "full_refund_or_exchange",
+          "allowed_resolutions": [
+            "refund",
+            "exchange",
+            "store_credit"
+          ],
+          "requires_human_review": false,
+          "decision_code": "ELIGIBLE",
+          "decision_message": "Return request is within the 14-day window and meets all policy conditions.",
+          "days_elapsed": 5,
+          "window_days": 14,
+          "exception_action": "APPROVE",
+          "exception_code": "NO_EXCEPTION"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.826Z"
+    },
+    {
+      "hash": "708ba7c245dd74eed4d362093b11a8eabb3c2c04a4989f1c3c2ced68bb0296c0",
+      "previousHash": "a0297c27589c71692d06001b32ce9e7e14f89b252d62f8cf3a0fb8f167697154",
+      "returnId": "ret_mv0hpgj6",
+      "actor": "agent",
+      "action": "CREATE_RETURN",
+      "data": {
+        "inputs": {
+          "order_id": "TEST-FASHION-OK",
+          "product_id": "P-SHIRT",
+          "quantity": 1,
+          "reason": "defect",
+          "resolution": "refund"
+        },
+        "outputs": {
+          "return_id": "ret_mv0hpgj6",
+          "rma_code": "RMA-3TSEL6HNC2A6",
+          "status": "APPROVED",
+          "resolution": "refund",
+          "message": "Return approved. RMA code: RMA-3TSEL6HNC2A6. Please keep this for your reference."
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.826Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S1-02",
+    "uid": "user-sc1-2",
+    "messageCount": 7,
+    "askRetries": 0,
+    "returnId": "ret_mv0hpgj6",
+    "rmaCode": "RMA-3TSEL6HNC2A6",
+    "currentState": "APPROVED",
+    "lastEligibility": {
+      "eligible": true,
+      "policyKey": "[REDACTED]",
+      "policyType": "full_refund_or_exchange",
+      "allowedResolutions": [
+        "refund",
+        "exchange",
+        "store_credit"
+      ],
+      "requiresHumanReview": false,
+      "decisionCode": "ELIGIBLE",
+      "decisionMessage": "Return request is within the 14-day window and meets all policy conditions.",
+      "daysElapsed": 5,
+      "windowDays": 14,
+      "policy": {
+        "eligible": true,
+        "window_days": 14,
+        "policy_type": "full_refund_or_exchange",
+        "damage_exception": false,
+        "requires_photo_evidence": false,
+        "tags_must_be_attached": true,
+        "must_be_unwashed_unworn": true,
+        "restocking_fee_percent": 0,
+        "allowed_resolutions": [
+          "refund",
+          "exchange",
+          "store_credit"
+        ],
+        "high_value_threshold": null,
+        "notes": "Free reverse pickup. Tags attached and unworn condition required."
+      }
+    },
+    "createdAt": 1791521603826,
+    "updatedAt": 1791521603826
+  }
+}

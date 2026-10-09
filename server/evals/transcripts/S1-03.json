@@ -1,0 +1,123 @@
+{
+  "id": "S1-03",
+  "scenario": "Defective fashion item in window",
+  "description": "Color faded defect on cotton polo within window",
+  "date": "2026-10-09T04:53:23.829Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "The polo shirt from TEST-FASHION-OK arrived with faded patches. Returning item P-SHIRT, tags on.",
+  "assistantReply": "Your return has been approved. RMA code issued.",
+  "steps": 3,
+  "toolsCalled": [
+    "check_eligibility",
+    "create_return"
+  ],
+  "outcome": "Return approved (RMA-FREW48QNB8JK)",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "b6dba9e1287299ca9f7edc296b02ae91df738f12c857b07a950c6c77eb68925f",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S1-03",
+      "actor": "agent",
+      "action": "CHECK_ELIGIBILITY",
+      "data": {
+        "inputs": {
+          "order_id": "TEST-FASHION-OK",
+          "product_id": "P-SHIRT",
+          "quantity": 1,
+          "reason": "defect",
+          "tags_attached": true
+        },
+        "outputs": {
+          "eligible": true,
+          "policy_type": "full_refund_or_exchange",
+          "allowed_resolutions": [
+            "refund",
+            "exchange",
+            "store_credit"
+          ],
+          "requires_human_review": false,
+          "decision_code": "ELIGIBLE",
+          "decision_message": "Return request is within the 14-day window and meets all policy conditions.",
+          "days_elapsed": 5,
+          "window_days": 14,
+          "exception_action": "APPROVE",
+          "exception_code": "NO_EXCEPTION"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.828Z"
+    },
+    {
+      "hash": "d2bc7163ada46a30ff32f2242dd594ecdb0b06a5aab63943187a84851bffb6ff",
+      "previousHash": "b6dba9e1287299ca9f7edc296b02ae91df738f12c857b07a950c6c77eb68925f",
+      "returnId": "ret_mv0hpgj9",
+      "actor": "agent",
+      "action": "CREATE_RETURN",
+      "data": {
+        "inputs": {
+          "order_id": "TEST-FASHION-OK",
+          "product_id": "P-SHIRT",
+          "quantity": 1,
+          "reason": "defect",
+          "resolution": "refund"
+        },
+        "outputs": {
+          "return_id": "ret_mv0hpgj9",
+          "rma_code": "RMA-FREW48QNB8JK",
+          "status": "APPROVED",
+          "resolution": "refund",
+          "message": "Return approved. RMA code: RMA-FREW48QNB8JK. Please keep this for your reference."
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.829Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S1-03",
+    "uid": "user-sc1-3",
+    "messageCount": 7,
+    "askRetries": 0,
+    "returnId": "ret_mv0hpgj9",
+    "rmaCode": "RMA-FREW48QNB8JK",
+    "currentState": "APPROVED",
+    "lastEligibility": {
+      "eligible": true,
+      "policyKey": "[REDACTED]",
+      "policyType": "full_refund_or_exchange",
+      "allowedResolutions": [
+        "refund",
+        "exchange",
+        "store_credit"
+      ],
+      "requiresHumanReview": false,
+      "decisionCode": "ELIGIBLE",
+      "decisionMessage": "Return request is within the 14-day window and meets all policy conditions.",
+      "daysElapsed": 5,
+      "windowDays": 14,
+      "policy": {
+        "eligible": true,
+        "window_days": 14,
+        "policy_type": "full_refund_or_exchange",
+        "damage_exception": false,
+        "requires_photo_evidence": false,
+        "tags_must_be_attached": true,
+        "must_be_unwashed_unworn": true,
+        "restocking_fee_percent": 0,
+        "allowed_resolutions": [
+          "refund",
+          "exchange",
+          "store_credit"
+        ],
+        "high_value_threshold": null,
+        "notes": "Free reverse pickup. Tags attached and unworn condition required."
+      }
+    },
+    "createdAt": 1791521603828,
+    "updatedAt": 1791521603829
+  }
+}

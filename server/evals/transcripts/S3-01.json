@@ -1,0 +1,50 @@
+{
+  "id": "S3-01",
+  "scenario": "Missing photo evidence",
+  "description": "Beauty moisturizer return without photo",
+  "date": "2026-10-09T04:53:23.840Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "The cream from order TEST-BEAUTY arrived broken. I want to return it.",
+  "assistantReply": "Please upload a photo of the damaged item to proceed with your return.",
+  "steps": 2,
+  "toolsCalled": [
+    "request_evidence"
+  ],
+  "outcome": "Photo evidence requested",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "801b4e472f3e53a9a0f07fd6980727108e97c330815009443eb6fedc05b2c43d",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S3-01",
+      "actor": "agent",
+      "action": "REQUEST_EVIDENCE",
+      "data": {
+        "inputs": {
+          "reason": "Photo evidence required for damaged item"
+        },
+        "outputs": {
+          "action": "EVIDENCE_REQUESTED",
+          "upload_hint": "Please upload a clear photo or video showing the damage or defect. Supported: JPG, PNG, WebP (max 10MB).",
+          "reason": "Photo evidence required for damaged item"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.840Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S3-01",
+    "uid": "user-sc3-1",
+    "messageCount": 5,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": null,
+    "createdAt": 1791521603840,
+    "updatedAt": 1791521603840
+  }
+}

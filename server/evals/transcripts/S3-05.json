@@ -1,0 +1,50 @@
+{
+  "id": "S3-05",
+  "scenario": "Missing photo evidence",
+  "description": "Asking how to upload photo for evidence request",
+  "date": "2026-10-09T04:53:23.846Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "How do I upload photos for my damaged return request on order TEST-FASHION-OK?",
+  "assistantReply": "Please upload a photo of the damaged item to proceed with your return.",
+  "steps": 2,
+  "toolsCalled": [
+    "request_evidence"
+  ],
+  "outcome": "Photo evidence requested",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "d9ec2e87090d8bfc02cd10697de8cd474a9473e1f923cd72f327ba75f8a0448e",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S3-05",
+      "actor": "agent",
+      "action": "REQUEST_EVIDENCE",
+      "data": {
+        "inputs": {
+          "reason": "Photo evidence required for damaged item"
+        },
+        "outputs": {
+          "action": "EVIDENCE_REQUESTED",
+          "upload_hint": "Please upload a clear photo or video showing the damage or defect. Supported: JPG, PNG, WebP (max 10MB).",
+          "reason": "Photo evidence required for damaged item"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.845Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S3-05",
+    "uid": "user-sc3-5",
+    "messageCount": 5,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": null,
+    "createdAt": 1791521603845,
+    "updatedAt": 1791521603845
+  }
+}

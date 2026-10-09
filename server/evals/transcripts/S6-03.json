@@ -1,0 +1,46 @@
+{
+  "id": "S6-03",
+  "scenario": "Refund failure & status inquiries",
+  "description": "Order list inquiry to track returns",
+  "date": "2026-10-09T04:53:23.865Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "Can you show me all my past orders so I can check my return progress?",
+  "assistantReply": "Here are your recent orders. You can check return progress from this list.",
+  "steps": 2,
+  "toolsCalled": [
+    "list_my_orders"
+  ],
+  "outcome": "Order history retrieved",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "096375d2ede003db8c7750c34fc49f1df1aba606aa15e3074409ec8177d14dad",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S6-03",
+      "actor": "agent",
+      "action": "LIST_MY_ORDERS",
+      "data": {
+        "inputs": {},
+        "outputs": {
+          "orders": []
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.865Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S6-03",
+    "uid": "user-sc6-3",
+    "messageCount": 5,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": null,
+    "createdAt": 1791521603864,
+    "updatedAt": 1791521603865
+  }
+}

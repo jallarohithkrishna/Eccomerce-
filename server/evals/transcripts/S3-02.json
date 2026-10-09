@@ -1,0 +1,50 @@
+{
+  "id": "S3-02",
+  "scenario": "Missing photo evidence",
+  "description": "Damaged ceramic item requesting return without uploading proof",
+  "date": "2026-10-09T04:53:23.842Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "My order TEST-HOME ceramic mug was smashed in transit. Give me a return.",
+  "assistantReply": "Please upload a photo of the damaged item to proceed with your return.",
+  "steps": 2,
+  "toolsCalled": [
+    "request_evidence"
+  ],
+  "outcome": "Photo evidence requested",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "1ce0ef5195a033a019124017af5daa5cb6a659b9e17e3430c7e28afdced15748",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S3-02",
+      "actor": "agent",
+      "action": "REQUEST_EVIDENCE",
+      "data": {
+        "inputs": {
+          "reason": "Photo evidence required for damaged item"
+        },
+        "outputs": {
+          "action": "EVIDENCE_REQUESTED",
+          "upload_hint": "Please upload a clear photo or video showing the damage or defect. Supported: JPG, PNG, WebP (max 10MB).",
+          "reason": "Photo evidence required for damaged item"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.841Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S3-02",
+    "uid": "user-sc3-2",
+    "messageCount": 5,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": null,
+    "createdAt": 1791521603841,
+    "updatedAt": 1791521603841
+  }
+}

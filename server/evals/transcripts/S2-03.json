@@ -1,0 +1,87 @@
+{
+  "id": "S2-03",
+  "scenario": "Outside window then appeal",
+  "description": "Expired fashion order 45 days past delivery",
+  "date": "2026-10-09T04:53:23.837Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "Return P-SHIRT from order TEST-EXPIRED delivered last month.",
+  "assistantReply": "Your return window has expired. You may file an appeal if you have special circumstances.",
+  "steps": 2,
+  "toolsCalled": [
+    "check_eligibility"
+  ],
+  "outcome": "Appeal filed / policy explained",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "134dea7e8f94f8ae6514ec271bfe4d7348bd078d04484201fb23487c68cbaec1",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S2-03",
+      "actor": "agent",
+      "action": "CHECK_ELIGIBILITY",
+      "data": {
+        "inputs": {
+          "order_id": "TEST-EXPIRED",
+          "product_id": "P-SHIRT",
+          "quantity": 1,
+          "reason": "defect"
+        },
+        "outputs": {
+          "eligible": false,
+          "policy_type": "full_refund_or_exchange",
+          "allowed_resolutions": [],
+          "requires_human_review": false,
+          "decision_code": "WINDOW_EXPIRED",
+          "decision_message": "Return window of 14 days has expired. Request was made 2472 day(s) after delivery.",
+          "days_elapsed": 2472,
+          "window_days": 14,
+          "exception_action": "APPROVE",
+          "exception_code": "NO_EXCEPTION"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.836Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S2-03",
+    "uid": "user-sc2-3",
+    "messageCount": 5,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": {
+      "eligible": false,
+      "policyKey": "[REDACTED]",
+      "policyType": "full_refund_or_exchange",
+      "allowedResolutions": [],
+      "requiresHumanReview": false,
+      "decisionCode": "WINDOW_EXPIRED",
+      "decisionMessage": "Return window of 14 days has expired. Request was made 2472 day(s) after delivery.",
+      "daysElapsed": 2472,
+      "windowDays": 14,
+      "policy": {
+        "eligible": true,
+        "window_days": 14,
+        "policy_type": "full_refund_or_exchange",
+        "damage_exception": false,
+        "requires_photo_evidence": false,
+        "tags_must_be_attached": true,
+        "must_be_unwashed_unworn": true,
+        "restocking_fee_percent": 0,
+        "allowed_resolutions": [
+          "refund",
+          "exchange",
+          "store_credit"
+        ],
+        "high_value_threshold": null,
+        "notes": "Free reverse pickup. Tags attached and unworn condition required."
+      }
+    },
+    "createdAt": 1791521603836,
+    "updatedAt": 1791521603836
+  }
+}

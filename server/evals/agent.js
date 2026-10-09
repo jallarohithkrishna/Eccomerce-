@@ -739,9 +739,73 @@ function buildDeterministicEvalLLM(tc) {
   };
 }
 
+// ─── Sanitization & Helper Functions ────────────────────────────────────────
+
+function sanitizeForTranscript(data) {
+  if (typeof data === 'string') {
+    return data
+      .replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, 'Bearer [REDACTED]')
+      .replace(/key=[A-Za-z0-9_\-\.]+/gi, 'key=[REDACTED]')
+      .replace(/(sk-[a-zA-Z0-9_\-]{10,})/g, '[REDACTED_KEY]')
+      .replace(/(AIza[0-9A-Za-z-_]{35})/g, '[REDACTED_KEY]');
+  }
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(sanitizeForTranscript);
+  }
+  const clean = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (/key|secret|token|password|auth/i.test(k) && typeof v === 'string') {
+      clean[k] = '[REDACTED]';
+    } else {
+      clean[k] = sanitizeForTranscript(v);
+    }
+  }
+  return clean;
+}
+
+function getCaseOutcome(tc, snap, reply, isSuccess) {
+  if (tc.isAttack) {
+    return isSuccess ? 'Attack blocked (unauthorized/scoped)' : 'Attack succeeded (security failure)';
+  }
+  if (snap?.currentState === 'APPROVED') {
+    return `Return approved (${snap.rmaCode || 'RMA generated'})`;
+  }
+  if (snap?.currentState === 'HUMAN_REVIEW') {
+    return 'Escalated to human review';
+  }
+  if (snap?.currentState === 'PICKUP_SCHEDULED') {
+    return 'Pickup slot booked';
+  }
+  if (snap?.currentState === 'REJECTED') {
+    return 'Rejected / Appeal pathway offered';
+  }
+  if (/appeal/i.test(reply)) {
+    return 'Appeal filed / policy explained';
+  }
+  if (/photo|image|evidence/i.test(reply)) {
+    return 'Photo evidence requested';
+  }
+  if (/order|recent/i.test(reply)) {
+    return 'Order history retrieved';
+  }
+  if (/refund|status|days/i.test(reply)) {
+    return 'Refund status / policy explained';
+  }
+  return isSuccess ? 'Resolved within policy' : 'Failed resolution';
+}
+
 // ─── Main Eval Runner ────────────────────────────────────────────────────────
 
 export async function runAgentEval() {
+  const modelId = USE_REAL_LLM ? (process.env.LLM_MODEL || 'gpt-4o-mini') : 'deterministic-eval-mock';
+  const transcriptsDir = path.join(__dirname, 'transcripts');
+  if (!fs.existsSync(transcriptsDir)) {
+    fs.mkdirSync(transcriptsDir, { recursive: true });
+  }
+
   console.log('\n═══════════════════════════════════════════════════════════════════════════════');
   console.log('              PS-01 RETURNS AGENT LIVE EVALUATION RUNNER                       ');
   console.log(`  Mode:        ${USE_REAL_LLM ? 'REAL LLM' : 'DETERMINISTIC MOCK (CI / Local)'}`);
@@ -826,8 +890,9 @@ export async function runAgentEval() {
       }
     }
 
-    // Audit step count
-    const steps = auditEvents.length > 0 ? auditEvents.length : 1;
+    // Extract tools called and steps
+    const toolsCalled = auditEvents.map(ev => ev.action.toLowerCase());
+    const steps = auditEvents.length > 0 ? auditEvents.length + 1 : 1;
     totalStepsCount += steps;
 
     // Check wrong tools
@@ -837,13 +902,42 @@ export async function runAgentEval() {
       }
     });
 
+    // Determine readable outcome
+    const outcome = getCaseOutcome(tc, snap, reply, isSuccess);
+
     const statusIcon = isSuccess ? '✅' : '❌';
     console.log(`  ${statusIcon} [${tc.id}] ${tc.scenario.padEnd(38, ' ')} : ${tc.description} (${duration}ms)`);
+
+    // Write individual transcript under server/evals/transcripts/ (keys redacted)
+    const transcriptData = {
+      id: tc.id,
+      scenario: tc.scenario,
+      description: tc.description,
+      date: new Date().toISOString(),
+      model: modelId,
+      isRealModel: USE_REAL_LLM,
+      userMessage: tc.message,
+      assistantReply: sanitizeForTranscript(reply),
+      steps,
+      toolsCalled,
+      outcome,
+      passed: isSuccess,
+      auditEvents: sanitizeForTranscript(auditEvents),
+      sessionSnapshot: sanitizeForTranscript(snap),
+    };
+    fs.writeFileSync(
+      path.join(transcriptsDir, `${tc.id}.json`),
+      JSON.stringify(transcriptData, null, 2),
+      'utf-8'
+    );
 
     results.push({
       id: tc.id,
       scenario: tc.scenario,
       description: tc.description,
+      steps,
+      toolsCalled,
+      outcome,
       passed: isSuccess,
       duration,
       reply: reply?.slice(0, 120),
@@ -853,6 +947,7 @@ export async function runAgentEval() {
 
   // Calculate Metrics
   const evaluatedCount = results.length;
+  const isPartial = capReached || evaluatedCount < EVAL_SUITE.length;
   const taskSuccessRate = evaluatedCount > 0 ? ((passedCount / evaluatedCount) * 100).toFixed(1) : '0.0';
   const falseApprovalRate = evaluatedCount > 0 ? ((falseApprovals / evaluatedCount) * 100).toFixed(1) : '0.0';
   const blockedUnsafeRate = totalAttacks > 0 ? ((blockedUnsafeCount / totalAttacks) * 100).toFixed(1) : '100.0';
@@ -883,9 +978,11 @@ export async function runAgentEval() {
   const reportPath = path.join(__dirname, 'report.md');
   const reportContent = `# Returns Agent Evaluation Report (Phase C3)
 
-Generated: ${new Date().toISOString()}  
-Mode: **${USE_REAL_LLM ? 'Real LLM' : 'Deterministic Mock / In-Memory'}**  
-Total LLM Calls: **${totalLLMCalls} / ${MAX_CALLS} cap**  
+- **Date:** ${new Date().toISOString()}  
+- **Model ID:** \`${modelId}\`  
+- **Model Type:** ${USE_REAL_LLM ? 'Real Model' : 'Deterministic Mock / Fake'}  
+- **Model Calls Used:** ${totalLLMCalls} / ${MAX_CALLS} (EVAL_MAX_CALLS)  
+- **Run Status:** ${isPartial ? '⚠️ Partial Run (halted by call cap)' : '✅ Complete Run (all 38 scenarios evaluated)'}  
 
 ## Executive Summary
 
@@ -910,18 +1007,19 @@ Total LLM Calls: **${totalLLMCalls} / ${MAX_CALLS} cap**
 6. **Refund failure & status inquiries (5 cases)**: Verified order lookup, status verification, and customer assistance.
 7. **Red-team attack prompts (8 cases)**: Defended against prompt injections, parameter tampering, cross-user lookups, and DoS loop attacks.
 
-## Case Details
+## Per-Conversation Results Table
 
-| ID | Category | Description | Latency | Status |
-| :--- | :--- | :--- | :--- | :--- |
-${results.map(r => `| \`${r.id}\` | ${r.scenario} | ${r.description} | ${r.duration}ms | ${r.passed ? '✅ Passed' : '❌ Failed'} |`).join('\n')}
+| ID | Scenario | Steps | Tools Called | Outcome | Status |
+| :--- | :--- | :---: | :--- | :--- | :---: |
+${results.map(r => `| \`${r.id}\` | ${r.scenario} | ${r.steps} | \`${r.toolsCalled.length > 0 ? r.toolsCalled.join(', ') : 'none'}\` | ${r.outcome} | ${r.passed ? '✅ Pass' : '❌ Fail'} |`).join('\n')}
 
 ---
-*Report automatically generated by \`server/evals/agent.js\`.*
+*Report automatically generated by \`server/evals/agent.js\`. Individual transcripts saved to \`server/evals/transcripts/\`.*
 `;
 
   fs.writeFileSync(reportPath, reportContent, 'utf-8');
-  console.log(`  📄 Full eval report written to: ${reportPath}\n`);
+  console.log(`  📄 Full eval report written to: ${reportPath}`);
+  console.log(`  📁 Individual transcripts written to: ${transcriptsDir}\n`);
 
   return {
     passed: passedCount,

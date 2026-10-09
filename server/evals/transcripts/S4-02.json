@@ -1,0 +1,123 @@
+{
+  "id": "S4-02",
+  "scenario": "Luxury item high value to human review",
+  "description": "Designer handbag return above high-value threshold",
+  "date": "2026-10-09T04:53:23.850Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "Returning luxury handbag from order TEST-LUXURY worth ₹60,000. All certificates present.",
+  "assistantReply": "Your high-value return request has been forwarded to our specialist team for review.",
+  "steps": 3,
+  "toolsCalled": [
+    "check_eligibility",
+    "escalate_to_human"
+  ],
+  "outcome": "Resolved within policy",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "2a520b71e8e9be75690e5326082ec5b61810e1437d1195df64dea2639b59f95f",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S4-02",
+      "actor": "agent",
+      "action": "CHECK_ELIGIBILITY",
+      "data": {
+        "inputs": {
+          "order_id": "TEST-LUXURY",
+          "product_id": "P-WATCH",
+          "quantity": 1,
+          "reason": "not_needed",
+          "authenticity_cards": true,
+          "original_packaging": true
+        },
+        "outputs": {
+          "eligible": true,
+          "policy_type": "full_refund_or_replacement",
+          "allowed_resolutions": [
+            "refund",
+            "replacement"
+          ],
+          "requires_human_review": true,
+          "decision_code": "HIGH_VALUE_HUMAN_REVIEW",
+          "decision_message": "Item value ₹75000 exceeds threshold ₹50000. Escalated for specialist review.",
+          "days_elapsed": 5,
+          "window_days": 10,
+          "exception_action": "HUMAN_REVIEW",
+          "exception_code": "HIGH_VALUE_REVIEW"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.850Z"
+    },
+    {
+      "hash": "ee8c6c9157f9df5cfc2d7b2628c74bafc4044c8ae8d9a5a04a5d13e462cabb7d",
+      "previousHash": "2a520b71e8e9be75690e5326082ec5b61810e1437d1195df64dea2639b59f95f",
+      "returnId": "eval_conv_S4-02",
+      "actor": "agent",
+      "action": "ESCALATE_TO_HUMAN",
+      "data": {
+        "inputs": {
+          "reason": "Luxury item value ₹60000 exceeds threshold, requires human review"
+        },
+        "outputs": {
+          "action": "ESCALATED",
+          "ticket_id": "ESC-MV0HPGJU",
+          "message": "Your case has been escalated to a specialist. You will hear back within 24 hours.",
+          "case_packet": {
+            "conversationId": "eval_conv_S4-02",
+            "uid": "user-sc4-2",
+            "returnId": null,
+            "currentState": null,
+            "reason": "Luxury item value ₹60000 exceeds threshold, requires human review",
+            "escalatedAt": "2026-10-09T04:53:23.850Z"
+          }
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.850Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S4-02",
+    "uid": "user-sc4-2",
+    "messageCount": 7,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": {
+      "eligible": true,
+      "policyKey": "[REDACTED]",
+      "policyType": "full_refund_or_replacement",
+      "allowedResolutions": [
+        "refund",
+        "replacement"
+      ],
+      "requiresHumanReview": true,
+      "decisionCode": "HIGH_VALUE_HUMAN_REVIEW",
+      "decisionMessage": "Item value ₹75000 exceeds threshold ₹50000. Escalated for specialist review.",
+      "daysElapsed": 5,
+      "windowDays": 10,
+      "policy": {
+        "eligible": true,
+        "window_days": 10,
+        "policy_type": "full_refund_or_replacement",
+        "damage_exception": false,
+        "requires_photo_evidence": false,
+        "authenticity_cards_required": true,
+        "original_packaging_required": true,
+        "restocking_fee_percent": 0,
+        "allowed_resolutions": [
+          "refund",
+          "replacement"
+        ],
+        "high_value_threshold": 50000,
+        "notes": "High-value items above threshold trigger HUMAN_REVIEW. Authenticity cards + original packaging mandatory."
+      }
+    },
+    "createdAt": 1791521603850,
+    "updatedAt": 1791521603850
+  }
+}

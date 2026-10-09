@@ -1,0 +1,16 @@
+{
+  "id": "S1-05",
+  "scenario": "Defective fashion item in window",
+  "description": "Defective stitching with photo provided in window",
+  "date": "2026-10-09T04:53:23.832Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "Stitching came loose on shirt TEST-FASHION-OK P-SHIRT. Tags attached, photo uploaded.",
+  "assistantReply": "I'm only able to help with product returns, refunds, exchanges, and return status. For other questions, please visit our Help Centre or contact our support team.",
+  "steps": 1,
+  "toolsCalled": [],
+  "outcome": "Refund status / policy explained",
+  "passed": true,
+  "auditEvents": [],
+  "sessionSnapshot": null
+}

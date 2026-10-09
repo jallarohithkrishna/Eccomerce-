@@ -1,0 +1,27 @@
+{
+  "id": "S6-01",
+  "scenario": "Refund failure & status inquiries",
+  "description": "Inquiry on refund status for completed return",
+  "date": "2026-10-09T04:53:23.863Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "Where is my refund for return ret_abc123? It has been 5 days since pickup.",
+  "assistantReply": "Refunds are processed within 5-7 business days once warehouse inspection is complete.",
+  "steps": 1,
+  "toolsCalled": [],
+  "outcome": "Refund status / policy explained",
+  "passed": true,
+  "auditEvents": [],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S6-01",
+    "uid": "user-sc6-1",
+    "messageCount": 3,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": null,
+    "createdAt": 1791521603862,
+    "updatedAt": 1791521603862
+  }
+}

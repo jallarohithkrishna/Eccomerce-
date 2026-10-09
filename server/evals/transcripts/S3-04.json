@@ -1,0 +1,50 @@
+{
+  "id": "S3-04",
+  "scenario": "Missing photo evidence",
+  "description": "Defective electronics claiming physical damage without evidence",
+  "date": "2026-10-09T04:53:23.844Z",
+  "model": "deterministic-eval-mock",
+  "isRealModel": false,
+  "userMessage": "Phone screen in TEST-ELECTRONICS is cracked. Return it now.",
+  "assistantReply": "Please upload a photo of the damaged item to proceed with your return.",
+  "steps": 2,
+  "toolsCalled": [
+    "request_evidence"
+  ],
+  "outcome": "Photo evidence requested",
+  "passed": true,
+  "auditEvents": [
+    {
+      "hash": "3f5bc8064c54e0e643b0ddedbd0eaa5dbf6822996753e459f22a7497f133bba8",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "returnId": "eval_conv_S3-04",
+      "actor": "agent",
+      "action": "REQUEST_EVIDENCE",
+      "data": {
+        "inputs": {
+          "reason": "Photo evidence required for damaged item"
+        },
+        "outputs": {
+          "action": "EVIDENCE_REQUESTED",
+          "upload_hint": "Please upload a clear photo or video showing the damage or defect. Supported: JPG, PNG, WebP (max 10MB).",
+          "reason": "Photo evidence required for damaged item"
+        },
+        "ok": true,
+        "model": "v1.0"
+      },
+      "timestamp": "2026-10-09T04:53:23.844Z"
+    }
+  ],
+  "sessionSnapshot": {
+    "conversationId": "eval_conv_S3-04",
+    "uid": "user-sc3-4",
+    "messageCount": 5,
+    "askRetries": 0,
+    "returnId": null,
+    "rmaCode": null,
+    "currentState": null,
+    "lastEligibility": null,
+    "createdAt": 1791521603843,
+    "updatedAt": 1791521603844
+  }
+}
