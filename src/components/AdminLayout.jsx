@@ -1,5 +1,5 @@
 import { Link, Outlet, Navigate, useLocation } from 'react-router-dom';
-import { Package, LayoutDashboard, LogOut, ShieldX, ClipboardList, RotateCcw, Bot } from 'lucide-react';
+import { Package, LayoutDashboard, LogOut, ShieldX, ClipboardList, RotateCcw, Bot, Warehouse } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useRef } from 'react';
 import VoiceAssistant from './VoiceAssistant';
@@ -34,8 +34,9 @@ export default function AdminLayout() {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  // If logged in but NOT an admin or authorized staff → show Access Restricted screen
-  const isAuthorized = isAdmin || isStaff;
+  // Role gating: admin, staff, and warehouse are permitted
+  const isWarehouseRole = role === 'warehouse';
+  const isAuthorized = isAdmin || isStaff || isWarehouseRole;
   if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -45,7 +46,7 @@ export default function AdminLayout() {
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Access Restricted</h1>
           <p className="text-slate-500 mb-2">
-            You don't have permission to view this page. Staff or administrator credentials required.
+            You don't have permission to view this page. Staff, warehouse, or administrator credentials required.
           </p>
           <p className="text-sm text-slate-400 mb-8">
             Logged in as: <span className="font-medium text-slate-600">{user.email}</span> (Role: <span className="font-mono text-xs">{role}</span>)
@@ -66,7 +67,12 @@ export default function AdminLayout() {
     );
   }
 
-  // Authorized user — show the full admin panel
+  // Dedicated warehouse role is restricted to warehouse dock screen
+  if (isWarehouseRole && location.pathname !== '/admin/warehouse') {
+    return <Navigate to="/admin/warehouse" replace />;
+  }
+
+  // Authorized user — show admin panel
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row">
       {/* Sidebar */}
@@ -76,26 +82,40 @@ export default function AdminLayout() {
             <img src="/nova-logo.png" alt="Nova Store Logo" className="h-8 w-8 object-contain" />
             <div>
               Smart<span className="text-slate-900">Cart</span>
-              <span className="text-xs text-slate-500 uppercase ml-1 block mt-[-4px]">Admin</span>
+              <span className="text-xs text-slate-500 uppercase ml-1 block mt-[-4px]">
+                {isWarehouseRole ? 'Warehouse' : 'Admin'}
+              </span>
             </div>
           </Link>
         </div>
         <nav className="px-4 space-y-1 mt-2 md:mt-6 flex flex-row md:flex-col overflow-x-auto md:flex-1 pb-4 md:pb-0 hide-scrollbar">
-          <Link to="/admin" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
-            <LayoutDashboard className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Dashboard</span>
+          {!isWarehouseRole && (
+            <>
+              <Link to="/admin" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+                <LayoutDashboard className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Dashboard</span>
+              </Link>
+              <Link to="/admin/products" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+                <Package className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Products</span>
+              </Link>
+              <Link to="/admin/orders" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+                <ClipboardList className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Orders</span>
+              </Link>
+              <Link to="/admin/returns" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+                <RotateCcw className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Returns &amp; RMA</span>
+              </Link>
+            </>
+          )}
+
+          {/* Warehouse Dock link — accessible to warehouse, staff, and admin */}
+          <Link to="/admin/warehouse" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+            <Warehouse className="h-5 w-5 mr-2 md:mr-3 text-amber-600" /> <span className="hidden sm:inline md:block">Warehouse Dock</span>
           </Link>
-          <Link to="/admin/products" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
-            <Package className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Products</span>
-          </Link>
-          <Link to="/admin/orders" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
-            <ClipboardList className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Orders</span>
-          </Link>
-          <Link to="/admin/returns" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
-            <RotateCcw className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Returns &amp; RMA</span>
-          </Link>
-          <Link to="/admin/agent-runs" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
-            <Bot className="h-5 w-5 mr-2 md:mr-3 text-indigo-500" /> <span className="hidden sm:inline md:block">Agent Runs</span>
-          </Link>
+
+          {!isWarehouseRole && (
+            <Link to="/admin/agent-runs" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+              <Bot className="h-5 w-5 mr-2 md:mr-3 text-indigo-500" /> <span className="hidden sm:inline md:block">Agent Runs</span>
+            </Link>
+          )}
 
           {/* ── Mobile JARVIS Button ── */}
           <button

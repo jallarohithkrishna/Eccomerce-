@@ -555,6 +555,84 @@ describe('Warehouse Lifecycle & Carrier Webhook', () => {
     assert.ok(inspectRes.data.refund);
   });
 
+  it('API17b: Customer cannot inspect warehouse items (403)', async () => {
+    const res = await req('/warehouse/returns/ret_test/inspect', {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'cust-1', 'x-dev-role': 'customer' },
+      body: { passed: true, conditionNotes: 'Attempted inspection by customer' },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  it('API17c: Warehouse inspection fail transitions to REJECTED with notes', async () => {
+    const returnId = 'ret_wh_fail_test';
+    await returnStore.saveReturn({
+      returnRecord: { id: returnId, status: 'RECEIVED', refund_amount: 300 }
+    });
+
+    const res = await req(`/warehouse/returns/${returnId}/inspect`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'wh-2', 'x-dev-role': 'warehouse' },
+      body: {
+        passed: false,
+        conditionNotes: 'Security seal broken and physical unit scratched',
+        failureReason: 'Security seal broken',
+      },
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.data.status, 'REJECTED');
+    const stored = await returnStore.getReturn({ db: null, identifier: returnId });
+    assert.equal(stored.status, 'REJECTED');
+    assert.equal(stored.inspection_passed, false);
+    assert.ok(stored.rejection_reason.includes('Security seal broken'));
+  });
+
+  it('API17d: Staff and Admin can also receive and inspect warehouse items', async () => {
+    const returnId = 'ret_staff_wh_test';
+    await returnStore.saveReturn({
+      returnRecord: { id: returnId, status: 'IN_TRANSIT', refund_amount: 400 }
+    });
+
+    // Staff receives
+    const staffRecRes = await req(`/warehouse/returns/${returnId}/receive`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'staff-1', 'x-dev-role': 'staff' },
+    });
+    assert.equal(staffRecRes.status, 200);
+    assert.equal(staffRecRes.data.status, 'RECEIVED');
+
+    // Admin inspects
+    const adminInspRes = await req(`/warehouse/returns/${returnId}/inspect`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'admin-1', 'x-dev-role': 'admin' },
+      body: { passed: true, conditionNotes: 'Verified pristine by admin' },
+    });
+    assert.equal(adminInspRes.status, 200);
+    assert.ok(['REFUND_PROCESSING', 'COMPLETED'].includes(adminInspRes.data.status));
+  });
+
+  it('API17e: Receiving or inspecting in invalid state returns 409 conflict', async () => {
+    const returnId = 'ret_conflict_test';
+    // State is REQUESTED, not IN_TRANSIT
+    await returnStore.saveReturn({
+      returnRecord: { id: returnId, status: 'REQUESTED', refund_amount: 250 }
+    });
+
+    const badReceiveRes = await req(`/warehouse/returns/${returnId}/receive`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'wh-1', 'x-dev-role': 'warehouse' },
+    });
+    assert.equal(badReceiveRes.status, 409);
+
+    const badInspectRes = await req(`/warehouse/returns/${returnId}/inspect`, {
+      method: 'POST',
+      headers: { 'x-dev-uid': 'wh-1', 'x-dev-role': 'warehouse' },
+      body: { passed: true, conditionNotes: 'Test' },
+    });
+    assert.equal(badInspectRes.status, 409);
+  });
+
   it('API19: PATCH /api/orders/:id/status sets status to delivered and sets delivered_at, staff/admin only', async () => {
     // Reseed ord_1 as 'shipped' so the delivered transition is legal
     // (the global seed sets orders to 'delivered' for return eligibility;

@@ -24,6 +24,7 @@ const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
 const AdminProducts = lazy(() => import('./pages/admin/Products'));
 const AdminOrders = lazy(() => import('./pages/admin/Orders'));
 const AdminReturns = lazy(() => import('./pages/admin/Returns'));
+const AdminWarehouse = lazy(() => import('./pages/admin/Warehouse'));
 const AdminAgentRuns = lazy(() => import('./pages/admin/AgentRuns'));
 
 const Loader = () => (
@@ -145,6 +146,7 @@ function App() {
                   <Route path="products" element={<AdminProducts />} />
                   <Route path="orders" element={<AdminOrders />} />
                   <Route path="returns" element={<AdminReturns />} />
+                  <Route path="warehouse" element={<AdminWarehouse />} />
                   <Route path="agent-runs" element={<AdminAgentRuns />} />
                 </Route>
               </Routes>
