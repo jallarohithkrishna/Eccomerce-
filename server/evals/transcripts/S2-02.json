@@ -2,7 +2,7 @@
   "id": "S2-02",
   "scenario": "Outside window then appeal",
   "description": "Expired return requesting appeal due to medical delay",
-  "date": "2026-10-09T04:53:23.835Z",
+  "date": "2026-10-09T04:56:33.888Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "My return for TEST-EXPIRED was rejected for time window. Please file an appeal: I was hospitalized.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "ebff1f0084bde0ab43295c968fbc4bc32ed1598c011b99a82f099542aca70075",
+      "hash": "2826267dd6edb97a8c4004310534edc6de0ffd6db9bcc176aadf6f3c9d3d3df9",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S2-02",
       "actor": "agent",
@@ -42,7 +42,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.835Z"
+      "timestamp": "2026-10-09T04:56:33.887Z"
     }
   ],
   "sessionSnapshot": {
@@ -81,7 +81,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521603834,
-    "updatedAt": 1791521603835
+    "createdAt": 1791521793887,
+    "updatedAt": 1791521793887
   }
 }

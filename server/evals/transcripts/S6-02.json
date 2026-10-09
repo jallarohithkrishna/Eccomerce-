@@ -2,7 +2,7 @@
   "id": "S6-02",
   "scenario": "Refund failure & status inquiries",
   "description": "Customer reporting failed bank transfer on refund",
-  "date": "2026-10-09T04:53:23.864Z",
+  "date": "2026-10-09T04:56:33.922Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "My refund failed to credit to my HDFC account for return ret_test. Please help retry.",
@@ -21,7 +21,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521603863,
-    "updatedAt": 1791521603863
+    "createdAt": 1791521793921,
+    "updatedAt": 1791521793921
   }
 }

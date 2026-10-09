@@ -2,7 +2,7 @@
   "id": "S1-03",
   "scenario": "Defective fashion item in window",
   "description": "Color faded defect on cotton polo within window",
-  "date": "2026-10-09T04:53:23.829Z",
+  "date": "2026-10-09T04:56:33.879Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "The polo shirt from TEST-FASHION-OK arrived with faded patches. Returning item P-SHIRT, tags on.",
@@ -12,11 +12,11 @@
     "check_eligibility",
     "create_return"
   ],
-  "outcome": "Return approved (RMA-FREW48QNB8JK)",
+  "outcome": "Return approved (RMA-8GHJWV2D8NCZ)",
   "passed": true,
   "auditEvents": [
     {
-      "hash": "b6dba9e1287299ca9f7edc296b02ae91df738f12c857b07a950c6c77eb68925f",
+      "hash": "9d014b10152395e028cb4d194a183c6b999d0e78b8ce4466e708a87481d8fbc3",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S1-03",
       "actor": "agent",
@@ -48,12 +48,12 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.828Z"
+      "timestamp": "2026-10-09T04:56:33.879Z"
     },
     {
-      "hash": "d2bc7163ada46a30ff32f2242dd594ecdb0b06a5aab63943187a84851bffb6ff",
-      "previousHash": "b6dba9e1287299ca9f7edc296b02ae91df738f12c857b07a950c6c77eb68925f",
-      "returnId": "ret_mv0hpgj9",
+      "hash": "56526bb11efd354d8fdbf8cf514e2b8c37d1620c3666f4d53562c4e73d20579f",
+      "previousHash": "9d014b10152395e028cb4d194a183c6b999d0e78b8ce4466e708a87481d8fbc3",
+      "returnId": "ret_mv0htj6f",
       "actor": "agent",
       "action": "CREATE_RETURN",
       "data": {
@@ -65,16 +65,16 @@
           "resolution": "refund"
         },
         "outputs": {
-          "return_id": "ret_mv0hpgj9",
-          "rma_code": "RMA-FREW48QNB8JK",
+          "return_id": "ret_mv0htj6f",
+          "rma_code": "RMA-8GHJWV2D8NCZ",
           "status": "APPROVED",
           "resolution": "refund",
-          "message": "Return approved. RMA code: RMA-FREW48QNB8JK. Please keep this for your reference."
+          "message": "Return approved. RMA code: RMA-8GHJWV2D8NCZ. Please keep this for your reference."
         },
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.829Z"
+      "timestamp": "2026-10-09T04:56:33.879Z"
     }
   ],
   "sessionSnapshot": {
@@ -82,8 +82,8 @@
     "uid": "user-sc1-3",
     "messageCount": 7,
     "askRetries": 0,
-    "returnId": "ret_mv0hpgj9",
-    "rmaCode": "RMA-FREW48QNB8JK",
+    "returnId": "ret_mv0htj6f",
+    "rmaCode": "RMA-8GHJWV2D8NCZ",
     "currentState": "APPROVED",
     "lastEligibility": {
       "eligible": true,
@@ -117,7 +117,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521603828,
-    "updatedAt": 1791521603829
+    "createdAt": 1791521793878,
+    "updatedAt": 1791521793879
   }
 }

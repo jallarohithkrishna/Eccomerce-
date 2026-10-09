@@ -2,7 +2,7 @@
   "id": "S6-04",
   "scenario": "Refund failure & status inquiries",
   "description": "Customer asking how long warehouse inspection takes",
-  "date": "2026-10-09T04:53:23.866Z",
+  "date": "2026-10-09T04:56:33.924Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "How many days after courier pickup will my return be inspected for refund?",
@@ -21,7 +21,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521603865,
-    "updatedAt": 1791521603865
+    "createdAt": 1791521793923,
+    "updatedAt": 1791521793923
   }
 }

@@ -2,7 +2,7 @@
   "id": "S6-05",
   "scenario": "Refund failure & status inquiries",
   "description": "Customer asking for replacement instead of refund",
-  "date": "2026-10-09T04:53:23.867Z",
+  "date": "2026-10-09T04:56:33.924Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Can I choose replacement instead of refund for my return on TEST-FASHION-OK?",
@@ -21,7 +21,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521603867,
-    "updatedAt": 1791521603867
+    "createdAt": 1791521793924,
+    "updatedAt": 1791521793924
   }
 }

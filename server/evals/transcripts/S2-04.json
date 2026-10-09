@@ -2,7 +2,7 @@
   "id": "S2-04",
   "scenario": "Outside window then appeal",
   "description": "Customer demands exception on expired order",
-  "date": "2026-10-09T04:53:23.838Z",
+  "date": "2026-10-09T04:56:33.890Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "I know TEST-EXPIRED is past 7 days, but make an exception and approve return.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "b277d713f0757356b0ecc50b626cc83a47b54a6f9ff01e8eca13deaa8183d5d6",
+      "hash": "37d39deb72381531063824f76980d66bb8b84a36e3f402b67b52a74cbc89b15a",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S2-04",
       "actor": "agent",
@@ -42,7 +42,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.837Z"
+      "timestamp": "2026-10-09T04:56:33.890Z"
     }
   ],
   "sessionSnapshot": {
@@ -81,7 +81,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521603837,
-    "updatedAt": 1791521603837
+    "createdAt": 1791521793890,
+    "updatedAt": 1791521793890
   }
 }

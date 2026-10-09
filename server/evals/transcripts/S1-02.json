@@ -2,7 +2,7 @@
   "id": "S1-02",
   "scenario": "Defective fashion item in window",
   "description": "Broken zipper on denim jacket delivered 3 days ago",
-  "date": "2026-10-09T04:53:23.826Z",
+  "date": "2026-10-09T04:56:33.876Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Need return for TEST-FASHION-OK, product P-SHIRT. Zipper is completely broken. Tags attached.",
@@ -12,11 +12,11 @@
     "check_eligibility",
     "create_return"
   ],
-  "outcome": "Return approved (RMA-3TSEL6HNC2A6)",
+  "outcome": "Return approved (RMA-G5LJETU7GSBL)",
   "passed": true,
   "auditEvents": [
     {
-      "hash": "a0297c27589c71692d06001b32ce9e7e14f89b252d62f8cf3a0fb8f167697154",
+      "hash": "a449c0625ab96da8807893ca7d401111cc5bdbace18a01808f543a829f1ee90c",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S1-02",
       "actor": "agent",
@@ -48,12 +48,12 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.826Z"
+      "timestamp": "2026-10-09T04:56:33.875Z"
     },
     {
-      "hash": "708ba7c245dd74eed4d362093b11a8eabb3c2c04a4989f1c3c2ced68bb0296c0",
-      "previousHash": "a0297c27589c71692d06001b32ce9e7e14f89b252d62f8cf3a0fb8f167697154",
-      "returnId": "ret_mv0hpgj6",
+      "hash": "aa8fead1b5d57195c5213200cf76551a10f3dd992223a7292c4e4e76c232254f",
+      "previousHash": "a449c0625ab96da8807893ca7d401111cc5bdbace18a01808f543a829f1ee90c",
+      "returnId": "ret_mv0htj6c",
       "actor": "agent",
       "action": "CREATE_RETURN",
       "data": {
@@ -65,16 +65,16 @@
           "resolution": "refund"
         },
         "outputs": {
-          "return_id": "ret_mv0hpgj6",
-          "rma_code": "RMA-3TSEL6HNC2A6",
+          "return_id": "ret_mv0htj6c",
+          "rma_code": "RMA-G5LJETU7GSBL",
           "status": "APPROVED",
           "resolution": "refund",
-          "message": "Return approved. RMA code: RMA-3TSEL6HNC2A6. Please keep this for your reference."
+          "message": "Return approved. RMA code: RMA-G5LJETU7GSBL. Please keep this for your reference."
         },
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.826Z"
+      "timestamp": "2026-10-09T04:56:33.876Z"
     }
   ],
   "sessionSnapshot": {
@@ -82,8 +82,8 @@
     "uid": "user-sc1-2",
     "messageCount": 7,
     "askRetries": 0,
-    "returnId": "ret_mv0hpgj6",
-    "rmaCode": "RMA-3TSEL6HNC2A6",
+    "returnId": "ret_mv0htj6c",
+    "rmaCode": "RMA-G5LJETU7GSBL",
     "currentState": "APPROVED",
     "lastEligibility": {
       "eligible": true,
@@ -117,7 +117,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521603826,
-    "updatedAt": 1791521603826
+    "createdAt": 1791521793875,
+    "updatedAt": 1791521793876
   }
 }

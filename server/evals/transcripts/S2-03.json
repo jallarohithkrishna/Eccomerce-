@@ -2,7 +2,7 @@
   "id": "S2-03",
   "scenario": "Outside window then appeal",
   "description": "Expired fashion order 45 days past delivery",
-  "date": "2026-10-09T04:53:23.837Z",
+  "date": "2026-10-09T04:56:33.889Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Return P-SHIRT from order TEST-EXPIRED delivered last month.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "134dea7e8f94f8ae6514ec271bfe4d7348bd078d04484201fb23487c68cbaec1",
+      "hash": "c3dec845e9ad912cd96987295d3e152e480f41284528ed5326fbb96bbaad5238",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S2-03",
       "actor": "agent",
@@ -42,7 +42,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.836Z"
+      "timestamp": "2026-10-09T04:56:33.889Z"
     }
   ],
   "sessionSnapshot": {
@@ -81,7 +81,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521603836,
-    "updatedAt": 1791521603836
+    "createdAt": 1791521793888,
+    "updatedAt": 1791521793889
   }
 }

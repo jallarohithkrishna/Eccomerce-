@@ -2,7 +2,7 @@
   "id": "S3-04",
   "scenario": "Missing photo evidence",
   "description": "Defective electronics claiming physical damage without evidence",
-  "date": "2026-10-09T04:53:23.844Z",
+  "date": "2026-10-09T04:56:33.900Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Phone screen in TEST-ELECTRONICS is cracked. Return it now.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "3f5bc8064c54e0e643b0ddedbd0eaa5dbf6822996753e459f22a7497f133bba8",
+      "hash": "7964a0342e9a6180fae2285d143237eb5cf8513873737d859677896c715ea73a",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S3-04",
       "actor": "agent",
@@ -32,7 +32,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.844Z"
+      "timestamp": "2026-10-09T04:56:33.899Z"
     }
   ],
   "sessionSnapshot": {
@@ -44,7 +44,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521603843,
-    "updatedAt": 1791521603844
+    "createdAt": 1791521793898,
+    "updatedAt": 1791521793899
   }
 }

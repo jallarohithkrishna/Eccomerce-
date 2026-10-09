@@ -2,7 +2,7 @@
   "id": "S1-04",
   "scenario": "Defective fashion item in window",
   "description": "Wrong size labeled defective fit in window",
-  "date": "2026-10-09T04:53:23.830Z",
+  "date": "2026-10-09T04:56:33.882Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Ordered Large shirt in TEST-FASHION-OK P-SHIRT but size is mislabeled. Want refund, tags still attached.",
@@ -12,11 +12,11 @@
     "check_eligibility",
     "create_return"
   ],
-  "outcome": "Return approved (RMA-9V4MAYBP4UES)",
+  "outcome": "Return approved (RMA-YVWT7QCPYXYM)",
   "passed": true,
   "auditEvents": [
     {
-      "hash": "82704e790dd919c1c169b0bebafe11de2f2f0e54319ef0943ed0130d3b7fec1b",
+      "hash": "765fea383cbd95a84e7962e18f80c9f5113b201b52bd35f01f3dc2567d650d65",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S1-04",
       "actor": "agent",
@@ -48,12 +48,12 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.830Z"
+      "timestamp": "2026-10-09T04:56:33.881Z"
     },
     {
-      "hash": "4f6c79beeeeb7d368b5c60f3a891851f2f77c4b5f41e8c69da3a5474d827f6aa",
-      "previousHash": "82704e790dd919c1c169b0bebafe11de2f2f0e54319ef0943ed0130d3b7fec1b",
-      "returnId": "ret_mv0hpgja",
+      "hash": "1391a10daef38807e3c2cc3c3046bcd76ff30dbf2e0bd3b5723126896c61aadd",
+      "previousHash": "765fea383cbd95a84e7962e18f80c9f5113b201b52bd35f01f3dc2567d650d65",
+      "returnId": "ret_mv0htj6h",
       "actor": "agent",
       "action": "CREATE_RETURN",
       "data": {
@@ -65,16 +65,16 @@
           "resolution": "refund"
         },
         "outputs": {
-          "return_id": "ret_mv0hpgja",
-          "rma_code": "RMA-9V4MAYBP4UES",
+          "return_id": "ret_mv0htj6h",
+          "rma_code": "RMA-YVWT7QCPYXYM",
           "status": "APPROVED",
           "resolution": "refund",
-          "message": "Return approved. RMA code: RMA-9V4MAYBP4UES. Please keep this for your reference."
+          "message": "Return approved. RMA code: RMA-YVWT7QCPYXYM. Please keep this for your reference."
         },
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:53:23.830Z"
+      "timestamp": "2026-10-09T04:56:33.881Z"
     }
   ],
   "sessionSnapshot": {
@@ -82,8 +82,8 @@
     "uid": "user-sc1-4",
     "messageCount": 7,
     "askRetries": 0,
-    "returnId": "ret_mv0hpgja",
-    "rmaCode": "RMA-9V4MAYBP4UES",
+    "returnId": "ret_mv0htj6h",
+    "rmaCode": "RMA-YVWT7QCPYXYM",
     "currentState": "APPROVED",
     "lastEligibility": {
       "eligible": true,
@@ -117,7 +117,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521603830,
-    "updatedAt": 1791521603830
+    "createdAt": 1791521793881,
+    "updatedAt": 1791521793881
   }
 }
