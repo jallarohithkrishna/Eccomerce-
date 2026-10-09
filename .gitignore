@@ -32,3 +32,5 @@ serviceAccountKey.json
 android/.gradle
 android/build
 android/app/build
+
+verify*.txt
