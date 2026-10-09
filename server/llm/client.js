@@ -223,3 +223,30 @@ export async function classifyScope(userMessage, { llmOverride } = {}) {
     return { inScope: true, confidence: 'low' };
   }
 }
+
+let fallbackWarned = false;
+
+/**
+ * Validates LLM configuration and logs warnings on startup.
+ * Specifically checks if LLM_FALLBACK_MODEL is unset and logs a warning.
+ *
+ * @param {Object} [options]
+ * @param {Function} [options.warn] - Custom warning logger (defaults to console.warn)
+ * @param {boolean} [options.force] - Force logging even if already logged
+ * @returns {boolean} Whether LLM_FALLBACK_MODEL is configured
+ */
+export function checkLLMConfig({ warn = console.warn, force = false } = {}) {
+  const fallback = process.env.LLM_FALLBACK_MODEL;
+  if (!fallback) {
+    if (!fallbackWarned || force) {
+      fallbackWarned = true;
+      warn('[LLM STARTUP WARNING] LLM_FALLBACK_MODEL is unset. No fallback model configured; only scripted fallback will be used on primary model failure. To configure, supply a full provider ID (e.g. vendor/model like openai/gpt-3.5-turbo or groq/llama-3.1-8b-instant).');
+    }
+    return false;
+  }
+  return true;
+}
+
+export function resetFallbackWarned() {
+  fallbackWarned = false;
+}

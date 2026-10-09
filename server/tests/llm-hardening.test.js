@@ -17,7 +17,7 @@
 import { strict as assert } from 'assert';
 import { describe, it, before, beforeEach, afterEach } from 'node:test';
 
-import { callLLM, LLMError } from '../llm/client.js';
+import { callLLM, LLMError, checkLLMConfig, resetFallbackWarned } from '../llm/client.js';
 import { runLoop, groundingCheck } from '../agent/loop.js';
 import * as session from '../agent/session.js';
 import * as returnStore from '../returns/store.js';
@@ -175,6 +175,85 @@ describe('LLM Client — Hardening & Resilience', () => {
     assert.ok(modelsCalled.includes('fallback-model-pass'), 'must have switched to fallback');
     assert.equal(res.message.content, 'Response from fallback');
     assert.equal(res.modelUsed, 'fallback-model-pass');
+  });
+
+  it('LLM05b: when LLM_FALLBACK_MODEL is unset, no fallback model is called and error is thrown', async () => {
+    process.env.LLM_API_KEY = 'test-key';
+    process.env.LLM_MODEL = 'primary-model-fail';
+    delete process.env.LLM_FALLBACK_MODEL;
+
+    const modelsCalled = [];
+    const fakeFailFetch = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      modelsCalled.push(body.model);
+      return {
+        ok: false,
+        status: 500,
+        text: async () => 'Primary model crash',
+      };
+    };
+
+    await assert.rejects(
+      async () => {
+        await callLLM({
+          messages: [{ role: 'user', content: 'test' }],
+          fetchImpl: fakeFailFetch,
+          maxRetries: 1,
+        });
+      },
+      (err) => {
+        assert.equal(err.name, 'LLMError');
+        return true;
+      }
+    );
+
+    // Only primary was called; no fallback model was called
+    assert.deepEqual(modelsCalled, ['primary-model-fail', 'primary-model-fail']);
+  });
+
+  it('LLM05c: logs startup warning when LLM_FALLBACK_MODEL is unset', () => {
+    delete process.env.LLM_FALLBACK_MODEL;
+    resetFallbackWarned();
+    let warningLogged = '';
+    const customWarn = (msg) => { warningLogged = msg; };
+
+    const configured = checkLLMConfig({ warn: customWarn, force: true });
+    assert.equal(configured, false);
+    assert.ok(warningLogged.includes('LLM_FALLBACK_MODEL is unset'), 'should warn about unset fallback model');
+    assert.ok(warningLogged.includes('vendor/model'), 'should mention vendor/model format in warning');
+  });
+
+  it('LLM05d: accepts full provider ID format (vendor/model) for LLM_FALLBACK_MODEL', async () => {
+    process.env.LLM_API_KEY = 'test-key';
+    process.env.LLM_MODEL = 'openai/gpt-4o-mini';
+    process.env.LLM_FALLBACK_MODEL = 'groq/llama-3.1-70b-versatile';
+
+    const modelsCalled = [];
+    const fakeFallbackFetch = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      modelsCalled.push(body.model);
+      if (body.model === 'openai/gpt-4o-mini') {
+        return { ok: false, status: 500, text: async () => 'Error' };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'Fallback provider response' }, finish_reason: 'stop' }],
+        }),
+      };
+    };
+
+    const res = await callLLM({
+      messages: [{ role: 'user', content: 'test' }],
+      fetchImpl: fakeFallbackFetch,
+      maxRetries: 0,
+    });
+
+    assert.equal(modelsCalled[0], 'openai/gpt-4o-mini');
+    assert.equal(modelsCalled[1], 'groq/llama-3.1-70b-versatile');
+    assert.equal(res.modelUsed, 'groq/llama-3.1-70b-versatile');
+    assert.equal(res.message.content, 'Fallback provider response');
   });
 });
 

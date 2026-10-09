@@ -948,6 +948,8 @@ const isDirectRun = process.argv[1] && (
 if (isDirectRun && process.env.NODE_ENV !== 'test') {
   app.listen(PORT, async () => {
     console.log(`AI Shopping Assistant Server running on port ${PORT}`);
+    const { checkLLMConfig } = await import('./llm/client.js');
+    checkLLMConfig();
     if (process.env.ENABLE_JOBS === '1') {
       const { startJobs } = await import('./jobs/scheduler.js');
       await startJobs(db);

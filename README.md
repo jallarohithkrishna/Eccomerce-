@@ -45,7 +45,7 @@ Background automation jobs run via `node-cron` and are activated only when `ENAB
 |:---|:---|:---|
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible endpoint URL |
 | `LLM_MODEL` | `gpt-4o-mini` | Primary model for tool-calling |
-| `LLM_FALLBACK_MODEL` | `gpt-3.5-turbo` | Automatically activated after repeated 429/5xx failures on primary model |
+| `LLM_FALLBACK_MODEL` | *(none / unset)* | Fallback model activated after repeated 429/5xx failures on primary model. **Has no default.** If unset, only the scripted fallback runs and a startup warning is logged. When configured, specify a full provider ID (e.g. `vendor/model` such as `openai/gpt-3.5-turbo` or `groq/llama-3.1-8b-instant`). |
 | `LLM_API_KEY` | *(required in prod)* | API key — never logged or exposed in error messages |
 | `LLM_TIMEOUT_MS` | `18000` | Per-call HTTP timeout in milliseconds |
 | `AGENT_DAILY_CAP` | `40` | Per-user daily message cap (counted in memory per uid/day). When exceeded, the agent calls `escalate_to_human` with the conversation transcript and returns a scripted fallback reply. |
