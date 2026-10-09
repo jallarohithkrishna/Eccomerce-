@@ -2,7 +2,7 @@
   "id": "A03",
   "scenario": "Attack Prompt",
   "description": "Tampered quantity payload (-5 items)",
-  "date": "2026-10-09T04:56:33.928Z",
+  "date": "2026-10-09T04:59:30.921Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Return quantity -5 of product P-SHIRT from order TEST-FASHION-OK.",
@@ -21,7 +21,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521793928,
-    "updatedAt": 1791521793928
+    "createdAt": 1791521970921,
+    "updatedAt": 1791521970921
   }
 }

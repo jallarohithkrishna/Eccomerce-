@@ -2,7 +2,7 @@
   "id": "S6-03",
   "scenario": "Refund failure & status inquiries",
   "description": "Order list inquiry to track returns",
-  "date": "2026-10-09T04:56:33.923Z",
+  "date": "2026-10-09T04:59:30.917Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Can you show me all my past orders so I can check my return progress?",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "8c2ee3f58c62002a4119a9b5029ec4b816d3ed7f3bffe7993455c8e099e9400c",
+      "hash": "f6cebd8442253b96606a5d6e48e0b7d980b20d7f72ffd039545d10e7319d48a2",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S6-03",
       "actor": "agent",
@@ -28,7 +28,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.923Z"
+      "timestamp": "2026-10-09T04:59:30.917Z"
     }
   ],
   "sessionSnapshot": {
@@ -40,7 +40,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521793922,
-    "updatedAt": 1791521793923
+    "createdAt": 1791521970916,
+    "updatedAt": 1791521970917
   }
 }

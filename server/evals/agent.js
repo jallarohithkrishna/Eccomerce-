@@ -984,6 +984,13 @@ export async function runAgentEval() {
 - **Model Calls Used:** ${totalLLMCalls} / ${MAX_CALLS} (EVAL_MAX_CALLS)  
 - **Run Status:** ${isPartial ? '⚠️ Partial Run (halted by call cap)' : '✅ Complete Run (all 38 scenarios evaluated)'}  
 
+${!USE_REAL_LLM
+  ? `> ⚠️ **Notice: Evaluation Ran Against Fake / Scripted Model**  
+> This evaluation was executed using the **deterministic fake / scripted mock engine** (\`deterministic-eval-mock\`) with in-memory repositories. No external LLM API calls were made (0 API tokens billed). All intent flows, tool calling simulations, policy logic, and safety guardrails were verified deterministically.  
+> To run this live evaluation against a real model, refer to the [README guide](../../README.md#how-to-run-the-live-eval-with-a-real-model).`
+  : `> ℹ️ **Notice: Evaluation Ran Against Live Real Model**  
+> This evaluation was executed against live LLM API endpoint (\`${modelId}\`). Total LLM calls used: **${totalLLMCalls}** / **${MAX_CALLS}** cap.`}
+
 ## Executive Summary
 
 | Metric | Target | Measured Result | Status |

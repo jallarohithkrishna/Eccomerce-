@@ -2,7 +2,7 @@
   "id": "S2-05",
   "scenario": "Outside window then appeal",
   "description": "Expired order appeal submission with explanation",
-  "date": "2026-10-09T04:56:33.892Z",
+  "date": "2026-10-09T04:59:30.880Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Please submit appeal for my expired return on order TEST-EXPIRED: Courier delivered to wrong neighbor.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "b019403aed002771517f7136cde23933a6f79875355d4cc6ee4c6855cd31e3a2",
+      "hash": "d6ff5f268495f48c625bcc6742ad0e3cf0f47eb73b87858eed0bd1f2595ebf12",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S2-05",
       "actor": "agent",
@@ -42,7 +42,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.891Z"
+      "timestamp": "2026-10-09T04:59:30.880Z"
     }
   ],
   "sessionSnapshot": {
@@ -81,7 +81,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521793891,
-    "updatedAt": 1791521793891
+    "createdAt": 1791521970880,
+    "updatedAt": 1791521970880
   }
 }

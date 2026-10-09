@@ -2,7 +2,7 @@
   "id": "S1-01",
   "scenario": "Defective fashion item in window",
   "description": "Torn seam on blue shirt delivered 2 days ago",
-  "date": "2026-10-09T04:56:33.873Z",
+  "date": "2026-10-09T04:59:30.862Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "I want to return my blue shirt from order TEST-FASHION-OK. It has a torn seam along the sleeve. Tags are intact.",
@@ -12,11 +12,11 @@
     "check_eligibility",
     "create_return"
   ],
-  "outcome": "Return approved (RMA-DUCJNRYCDRH6)",
+  "outcome": "Return approved (RMA-6XRFVVT4R6L4)",
   "passed": true,
   "auditEvents": [
     {
-      "hash": "73af426c3fa5f6d78fb94fd727bd13dd9c017759b6a379b60783183299dde583",
+      "hash": "c6002193991be7413970d9951e7c1edcde3ec962861f5ded47a6ebbeb85228c5",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S1-01",
       "actor": "agent",
@@ -48,12 +48,12 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.870Z"
+      "timestamp": "2026-10-09T04:59:30.858Z"
     },
     {
-      "hash": "9e13a87485cada5f8e62f7c3f8d5a933316b9010a857da28ffdb7619230f6942",
-      "previousHash": "73af426c3fa5f6d78fb94fd727bd13dd9c017759b6a379b60783183299dde583",
-      "returnId": "ret_mv0htj67",
+      "hash": "dac75bc84a80f6fa517d72bc14b9a3d60f51e08b7c6c439cbfff092839aa909a",
+      "previousHash": "c6002193991be7413970d9951e7c1edcde3ec962861f5ded47a6ebbeb85228c5",
+      "returnId": "ret_mv0hxbql",
       "actor": "agent",
       "action": "CREATE_RETURN",
       "data": {
@@ -65,16 +65,16 @@
           "resolution": "refund"
         },
         "outputs": {
-          "return_id": "ret_mv0htj67",
-          "rma_code": "RMA-DUCJNRYCDRH6",
+          "return_id": "ret_mv0hxbql",
+          "rma_code": "RMA-6XRFVVT4R6L4",
           "status": "APPROVED",
           "resolution": "refund",
-          "message": "Return approved. RMA code: RMA-DUCJNRYCDRH6. Please keep this for your reference."
+          "message": "Return approved. RMA code: RMA-6XRFVVT4R6L4. Please keep this for your reference."
         },
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.871Z"
+      "timestamp": "2026-10-09T04:59:30.861Z"
     }
   ],
   "sessionSnapshot": {
@@ -82,8 +82,8 @@
     "uid": "user-sc1-1",
     "messageCount": 7,
     "askRetries": 0,
-    "returnId": "ret_mv0htj67",
-    "rmaCode": "RMA-DUCJNRYCDRH6",
+    "returnId": "ret_mv0hxbql",
+    "rmaCode": "RMA-6XRFVVT4R6L4",
     "currentState": "APPROVED",
     "lastEligibility": {
       "eligible": true,
@@ -117,7 +117,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521793863,
-    "updatedAt": 1791521793872
+    "createdAt": 1791521970851,
+    "updatedAt": 1791521970862
   }
 }

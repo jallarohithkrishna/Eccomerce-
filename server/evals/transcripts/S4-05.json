@@ -2,7 +2,7 @@
   "id": "S4-05",
   "scenario": "Luxury item high value to human review",
   "description": "Checking status of escalated luxury return case",
-  "date": "2026-10-09T04:56:33.916Z",
+  "date": "2026-10-09T04:59:30.904Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "I submitted luxury return for TEST-LUXURY. Has the specialist team approved it?",
@@ -16,7 +16,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "d0502e28292004d62c07c08d60ed4109f4338a5d6315a7da9c2f3b79558b13cd",
+      "hash": "6084684a91ef28fd47efc203b46f7dd813813b5b119f1e8990ed1e2f65c62f3f",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S4-05",
       "actor": "agent",
@@ -48,11 +48,11 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.915Z"
+      "timestamp": "2026-10-09T04:59:30.904Z"
     },
     {
-      "hash": "e658323472a2bd38aa838efe3f6a95fa0278fc4b8f96ec4591f234aa91516725",
-      "previousHash": "d0502e28292004d62c07c08d60ed4109f4338a5d6315a7da9c2f3b79558b13cd",
+      "hash": "4f30c5a63d38520cc4d7163905418b1ab81431e758bdf3804c13b46072b64b2c",
+      "previousHash": "6084684a91ef28fd47efc203b46f7dd813813b5b119f1e8990ed1e2f65c62f3f",
       "returnId": "eval_conv_S4-05",
       "actor": "agent",
       "action": "ESCALATE_TO_HUMAN",
@@ -62,7 +62,7 @@
         },
         "outputs": {
           "action": "ESCALATED",
-          "ticket_id": "ESC-MV0HTJ7F",
+          "ticket_id": "ESC-MV0HXBRS",
           "message": "Your case has been escalated to a specialist. You will hear back within 24 hours.",
           "case_packet": {
             "conversationId": "eval_conv_S4-05",
@@ -70,13 +70,13 @@
             "returnId": null,
             "currentState": null,
             "reason": "Luxury item value ₹60000 exceeds threshold, requires human review",
-            "escalatedAt": "2026-10-09T04:56:33.915Z"
+            "escalatedAt": "2026-10-09T04:59:30.904Z"
           }
         },
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.915Z"
+      "timestamp": "2026-10-09T04:59:30.904Z"
     }
   ],
   "sessionSnapshot": {
@@ -117,7 +117,7 @@
         "notes": "High-value items above threshold trigger HUMAN_REVIEW. Authenticity cards + original packaging mandatory."
       }
     },
-    "createdAt": 1791521793915,
-    "updatedAt": 1791521793915
+    "createdAt": 1791521970904,
+    "updatedAt": 1791521970904
   }
 }

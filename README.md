@@ -72,6 +72,60 @@ All 15 attacks are blocked and printed as a pass table.
 node server/evals/agent.js
 ```
 
-Runs 38 scripted scenarios (30 customer conversations + 8 attack prompts) across six categories. Report saved to `server/evals/report.md`. Supports `EVAL_MAX_CALLS` cap and real LLM when `LLM_API_KEY` is set.
+> ⚠️ **Default Execution:** By default, running `node server/evals/agent.js` executes against a **deterministic fake / scripted mock model** (`deterministic-eval-mock`) with in-memory state. This allows fast, zero-cost, fully offline evaluation during development and CI.
 
-Metrics reported: task success rate, wrong-tool rate, blocked unsafe calls, false-approval rate, escalation correctness, avg steps, latency (avg / p95 / min / max).
+The evaluation runner tests 38 scenarios (30 customer conversations + 8 direct attack prompts) across six scenario categories. Comprehensive evaluation report is saved to `server/evals/report.md` and individual conversation transcripts are stored under `server/evals/transcripts/`.
+
+Metrics reported: task success rate, wrong-tool rate, blocked unsafe calls (13/13: 5 prompt injections + 8 red-team prompts), false-approval rate, escalation correctness, avg steps, and latency (avg / p95 / min / max).
+
+### How to run the live eval with a real model
+
+To run the evaluation suite against a **live real LLM API** (such as OpenAI, Groq, Together, or any OpenAI-compatible provider):
+
+#### 1. Configure Environment Variables
+
+Set the following environment variables in your `.env` file or export them in your shell:
+
+| Variable | Required? | Description | Example |
+|:---|:---|:---|:---|
+| `LLM_API_KEY` | **Yes** | API key for your LLM provider | `sk-proj-...` |
+| `LLM_MODEL` | Optional | Primary model to evaluate (default: `gpt-4o-mini`) | `gpt-4o-mini` or `groq/llama-3.1-70b-versatile` |
+| `LLM_BASE_URL` | Optional | Provider endpoint (default: `https://api.openai.com/v1`) | `https://api.groq.com/openai/v1` |
+| `EVAL_MAX_CALLS` | Optional | Hard safety cap on live LLM calls (default: `120`) | `120` |
+| `LLM_FALLBACK_MODEL` | Optional | Full provider ID for secondary model (*no default*) | `openai/gpt-3.5-turbo` |
+
+**Linux / macOS:**
+```bash
+export LLM_API_KEY="your_api_key_here"
+export LLM_MODEL="gpt-4o-mini"
+export EVAL_MAX_CALLS="120"
+node server/evals/agent.js
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:LLM_API_KEY="your_api_key_here"
+$env:LLM_MODEL="gpt-4o-mini"
+$env:EVAL_MAX_CALLS="120"
+node server/evals/agent.js
+```
+
+#### 2. Cost and Token Estimation
+
+For a full evaluation run of all 38 scenarios:
+
+- **Total Test Cases**: 38 scenarios (30 multi-turn customer dialogues + 8 attack prompts)
+- **Model Probe**: 1 startup call testing function/tool calling support
+- **Average Turns per Case**: ~1.8 turns (ranging from 1 to 4 steps)
+- **Total LLM Calls**: ~55 to 80 calls per full run (safeguarded by `EVAL_MAX_CALLS=120`)
+- **Prompt Tokens per Call**: ~550 – 750 tokens (system instructions, conversation history, and tool definitions)
+- **Completion Tokens per Call**: ~40 – 120 tokens (structured tool calls or final customer replies)
+- **Total Token Volume**:
+  - Prompt tokens: ~30,000 – 50,000 tokens
+  - Completion tokens: ~3,000 – 8,000 tokens
+  - Combined tokens: ~35,000 – 60,000 tokens
+- **Estimated Cost per Run**:
+  - **OpenAI `gpt-4o-mini`** ($0.15/1M prompt, $0.60/1M completion): **~$0.008 to $0.015 USD (< 2 cents)**
+  - **Groq `llama-3.1-8b-instant`** ($0.05/1M prompt, $0.08/1M completion): **~$0.002 to $0.004 USD (< 1 cent)**
+  - **OpenAI `gpt-4o`** ($2.50/1M prompt, $10.00/1M completion): **~$0.12 to $0.20 USD (~15-20 cents)**
+

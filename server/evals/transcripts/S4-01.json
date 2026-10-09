@@ -2,7 +2,7 @@
   "id": "S4-01",
   "scenario": "Luxury item high value to human review",
   "description": "₹60,000 gold watch return with authenticity cards",
-  "date": "2026-10-09T04:56:33.907Z",
+  "date": "2026-10-09T04:59:30.897Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "I want to return the ₹60000 luxury watch from order TEST-LUXURY. Authenticity cards and box included.",
@@ -16,7 +16,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "9d70b5954eab4225c9296ccae503d0a1c970bb1eeb5727b18ae471d73ae4c9d1",
+      "hash": "fbd00d9c0be0a56f43a92eaf6f20c8d64d1726d00f204e01baa2291936ae5b71",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S4-01",
       "actor": "agent",
@@ -48,11 +48,11 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.905Z"
+      "timestamp": "2026-10-09T04:59:30.896Z"
     },
     {
-      "hash": "3b5903d58be5032a073acd6ac2fffcf37c4981c4ccd0faa717604f733d6f2d4e",
-      "previousHash": "9d70b5954eab4225c9296ccae503d0a1c970bb1eeb5727b18ae471d73ae4c9d1",
+      "hash": "2991ff4fb3242eb8e120c2bd5435cd226cf5fa8ada55ae076b25f946f0b4921e",
+      "previousHash": "fbd00d9c0be0a56f43a92eaf6f20c8d64d1726d00f204e01baa2291936ae5b71",
       "returnId": "eval_conv_S4-01",
       "actor": "agent",
       "action": "ESCALATE_TO_HUMAN",
@@ -62,7 +62,7 @@
         },
         "outputs": {
           "action": "ESCALATED",
-          "ticket_id": "ESC-MV0HTJ76",
+          "ticket_id": "ESC-MV0HXBRK",
           "message": "Your case has been escalated to a specialist. You will hear back within 24 hours.",
           "case_packet": {
             "conversationId": "eval_conv_S4-01",
@@ -70,13 +70,13 @@
             "returnId": null,
             "currentState": null,
             "reason": "Luxury item value ₹60000 exceeds threshold, requires human review",
-            "escalatedAt": "2026-10-09T04:56:33.906Z"
+            "escalatedAt": "2026-10-09T04:59:30.896Z"
           }
         },
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.906Z"
+      "timestamp": "2026-10-09T04:59:30.896Z"
     }
   ],
   "sessionSnapshot": {
@@ -117,7 +117,7 @@
         "notes": "High-value items above threshold trigger HUMAN_REVIEW. Authenticity cards + original packaging mandatory."
       }
     },
-    "createdAt": 1791521793904,
-    "updatedAt": 1791521793906
+    "createdAt": 1791521970895,
+    "updatedAt": 1791521970896
   }
 }

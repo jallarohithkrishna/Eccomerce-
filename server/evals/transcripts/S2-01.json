@@ -2,7 +2,7 @@
   "id": "S2-01",
   "scenario": "Outside window then appeal",
   "description": "Expired order return request — should deny and offer appeal",
-  "date": "2026-10-09T04:56:33.886Z",
+  "date": "2026-10-09T04:59:30.872Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "I want to return the shirt from order TEST-EXPIRED. Can I get a refund?",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "503685fa0128aff29d8661d740dce977243c224a1bf94925b5fc62e655c44a1d",
+      "hash": "d616d7194cef391d201944830d875a450c47cfcaa437c5e435ed6255aa64fbb7",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S2-01",
       "actor": "agent",
@@ -42,7 +42,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.885Z"
+      "timestamp": "2026-10-09T04:59:30.872Z"
     }
   ],
   "sessionSnapshot": {
@@ -81,7 +81,7 @@
         "notes": "Free reverse pickup. Tags attached and unworn condition required."
       }
     },
-    "createdAt": 1791521793885,
-    "updatedAt": 1791521793886
+    "createdAt": 1791521970871,
+    "updatedAt": 1791521970872
   }
 }

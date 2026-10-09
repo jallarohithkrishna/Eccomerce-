@@ -2,7 +2,7 @@
   "id": "S6-01",
   "scenario": "Refund failure & status inquiries",
   "description": "Inquiry on refund status for completed return",
-  "date": "2026-10-09T04:56:33.921Z",
+  "date": "2026-10-09T04:59:30.914Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Where is my refund for return ret_abc123? It has been 5 days since pickup.",
@@ -21,7 +21,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521793920,
-    "updatedAt": 1791521793920
+    "createdAt": 1791521970913,
+    "updatedAt": 1791521970913
   }
 }

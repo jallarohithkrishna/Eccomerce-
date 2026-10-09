@@ -2,7 +2,7 @@
   "id": "S1-05",
   "scenario": "Defective fashion item in window",
   "description": "Defective stitching with photo provided in window",
-  "date": "2026-10-09T04:56:33.884Z",
+  "date": "2026-10-09T04:59:30.871Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "Stitching came loose on shirt TEST-FASHION-OK P-SHIRT. Tags attached, photo uploaded.",

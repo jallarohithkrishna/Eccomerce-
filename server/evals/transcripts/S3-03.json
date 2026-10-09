@@ -2,7 +2,7 @@
   "id": "S3-03",
   "scenario": "Missing photo evidence",
   "description": "Customer refuses to upload photo for damaged item",
-  "date": "2026-10-09T04:56:33.898Z",
+  "date": "2026-10-09T04:59:30.889Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "My shirt in TEST-FASHION-OK is damaged. I do not have a camera to take photos.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "e6604981daffbf4bca0d3e43d9804495aaf86cbbd7f651c80ae14373d1f2f059",
+      "hash": "7d8b036c3c36f92e08d6bbc16fa0ae9fe8636376e1f1ed6b55d576aba5cfa91f",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S3-03",
       "actor": "agent",
@@ -32,7 +32,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.898Z"
+      "timestamp": "2026-10-09T04:59:30.888Z"
     }
   ],
   "sessionSnapshot": {
@@ -44,7 +44,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521793897,
-    "updatedAt": 1791521793898
+    "createdAt": 1791521970888,
+    "updatedAt": 1791521970888
   }
 }

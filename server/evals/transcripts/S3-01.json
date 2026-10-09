@@ -2,7 +2,7 @@
   "id": "S3-01",
   "scenario": "Missing photo evidence",
   "description": "Beauty moisturizer return without photo",
-  "date": "2026-10-09T04:56:33.894Z",
+  "date": "2026-10-09T04:59:30.883Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "The cream from order TEST-BEAUTY arrived broken. I want to return it.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "2f8c6e57fc9fb52a9d8bc44ad8e2b86f8101ac4734ee0b3622c7880d7cf8ee71",
+      "hash": "e6149ef41323fe4796f63033e5dad4f21b65c4be1548779c6dd17718e44c1584",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S3-01",
       "actor": "agent",
@@ -32,7 +32,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.893Z"
+      "timestamp": "2026-10-09T04:59:30.883Z"
     }
   ],
   "sessionSnapshot": {
@@ -44,7 +44,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521793893,
-    "updatedAt": 1791521793893
+    "createdAt": 1791521970882,
+    "updatedAt": 1791521970883
   }
 }

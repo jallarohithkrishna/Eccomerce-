@@ -2,7 +2,7 @@
   "id": "S3-05",
   "scenario": "Missing photo evidence",
   "description": "Asking how to upload photo for evidence request",
-  "date": "2026-10-09T04:56:33.902Z",
+  "date": "2026-10-09T04:59:30.894Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "How do I upload photos for my damaged return request on order TEST-FASHION-OK?",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "d610215154b9ca021f990b53c922a3c76233f34abcfe1dbff5e97d1c56ba6c17",
+      "hash": "6dd5e265953c5281b3d11963dabd18398003ec7a6e0b4c4c463079b54a8bca93",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S3-05",
       "actor": "agent",
@@ -32,7 +32,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.901Z"
+      "timestamp": "2026-10-09T04:59:30.893Z"
     }
   ],
   "sessionSnapshot": {
@@ -44,7 +44,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521793901,
-    "updatedAt": 1791521793901
+    "createdAt": 1791521970893,
+    "updatedAt": 1791521970893
   }
 }

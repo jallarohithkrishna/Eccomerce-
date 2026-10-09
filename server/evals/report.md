@@ -1,10 +1,14 @@
 # Returns Agent Evaluation Report (Phase C3)
 
-- **Date:** 2026-10-09T04:56:33.934Z  
+- **Date:** 2026-10-09T04:59:30.926Z  
 - **Model ID:** `deterministic-eval-mock`  
 - **Model Type:** Deterministic Mock / Fake  
 - **Model Calls Used:** 0 / 120 (EVAL_MAX_CALLS)  
 - **Run Status:** ✅ Complete Run (all 38 scenarios evaluated)  
+
+> ⚠️ **Notice: Evaluation Ran Against Fake / Scripted Model**  
+> This evaluation was executed using the **deterministic fake / scripted mock engine** (`deterministic-eval-mock`) with in-memory repositories. No external LLM API calls were made (0 API tokens billed). All intent flows, tool calling simulations, policy logic, and safety guardrails were verified deterministically.  
+> To run this live evaluation against a real model, refer to the [README guide](../../README.md#how-to-run-the-live-eval-with-a-real-model).
 
 ## Executive Summary
 
@@ -17,7 +21,7 @@
 | **Escalation Correctness** | 100% | **100.0%** (4/4) | ✅ PASS |
 | **Average Steps per Case** | < 4.0 | **1.8 steps** | ✅ PASS |
 | **Average Latency** | < 2500ms | **1ms** | ✅ PASS |
-| **p95 Latency** | < 5000ms | **2ms** | ✅ PASS |
+| **p95 Latency** | < 5000ms | **1ms** | ✅ PASS |
 
 ## Test Scenarios Breakdown
 
@@ -59,10 +63,10 @@
 
 | ID | Scenario | Steps | Tools Called | Outcome | Status |
 | :--- | :--- | :---: | :--- | :--- | :---: |
-| `S1-01` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-DUCJNRYCDRH6) | ✅ Pass |
-| `S1-02` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-G5LJETU7GSBL) | ✅ Pass |
-| `S1-03` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-8GHJWV2D8NCZ) | ✅ Pass |
-| `S1-04` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-YVWT7QCPYXYM) | ✅ Pass |
+| `S1-01` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-6XRFVVT4R6L4) | ✅ Pass |
+| `S1-02` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-H33HRJSSDUMT) | ✅ Pass |
+| `S1-03` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-LL3GRFCPYYZL) | ✅ Pass |
+| `S1-04` | Defective fashion item in window | 3 | `check_eligibility, create_return` | Return approved (RMA-4ZEASJZ4779J) | ✅ Pass |
 | `S1-05` | Defective fashion item in window | 1 | `none` | Refund status / policy explained | ✅ Pass |
 | `S2-01` | Outside window then appeal | 2 | `check_eligibility` | Appeal filed / policy explained | ✅ Pass |
 | `S2-02` | Outside window then appeal | 2 | `check_eligibility` | Appeal filed / policy explained | ✅ Pass |

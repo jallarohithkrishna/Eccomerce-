@@ -2,7 +2,7 @@
   "id": "S3-02",
   "scenario": "Missing photo evidence",
   "description": "Damaged ceramic item requesting return without uploading proof",
-  "date": "2026-10-09T04:56:33.895Z",
+  "date": "2026-10-09T04:59:30.886Z",
   "model": "deterministic-eval-mock",
   "isRealModel": false,
   "userMessage": "My order TEST-HOME ceramic mug was smashed in transit. Give me a return.",
@@ -15,7 +15,7 @@
   "passed": true,
   "auditEvents": [
     {
-      "hash": "2301355cb0d8da1b405e5e577980b7c654c381e4478f108331aa997e3c4c9813",
+      "hash": "34356d3b5f64524fe541b84530975ffba523dec8be6277d06751ca684ce10f1a",
       "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "returnId": "eval_conv_S3-02",
       "actor": "agent",
@@ -32,7 +32,7 @@
         "ok": true,
         "model": "v1.0"
       },
-      "timestamp": "2026-10-09T04:56:33.895Z"
+      "timestamp": "2026-10-09T04:59:30.885Z"
     }
   ],
   "sessionSnapshot": {
@@ -44,7 +44,7 @@
     "rmaCode": null,
     "currentState": null,
     "lastEligibility": null,
-    "createdAt": 1791521793895,
-    "updatedAt": 1791521793895
+    "createdAt": 1791521970885,
+    "updatedAt": 1791521970885
   }
 }
