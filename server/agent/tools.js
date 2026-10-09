@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { evaluate }          from '../policy/engine.js';
 import { verifyOrderForReturn } from '../returns/verify.js';
-import { assertTransition, STATES } from '../returns/stateMachine.js';
+import { assertTransition, STATES, transitionReturn } from '../returns/stateMachine.js';
 import { evaluateException }  from '../returns/exceptions.js';
 import * as session          from './session.js';
 import { createEvent, GENESIS_HASH } from '../returns/audit.js';
@@ -466,11 +466,20 @@ async function schedulePickup({ return_id, preferred_date, uid, conversationId, 
   const slot       = `${pickupDate} (10 AM – 1 PM)`;
 
   if (db && return_id && !return_id.startsWith('ret_TEST')) {
-    await db.collection('returns').doc(return_id).update({
-      status:       STATES.PICKUP_SCHEDULED,
-      pickup_slot:  slot,
-      updated_at:   new Date().toISOString(),
-    }).catch(() => {});
+    await transitionReturn({
+      db,
+      returnId: return_id,
+      toState: STATES.PICKUP_SCHEDULED,
+      action: 'SCHEDULE_PICKUP',
+      actor: 'agent',
+      data: { slotId: slot },
+    }).catch(async () => {
+      await db.collection('returns').doc(return_id).update({
+        status:       STATES.PICKUP_SCHEDULED,
+        pickup_slot:  slot,
+        updated_at:   new Date().toISOString(),
+      }).catch(() => {});
+    });
   }
 
   session.updateState(conversationId, STATES.PICKUP_SCHEDULED);
@@ -523,11 +532,20 @@ async function escalateToHuman({ reason, uid, conversationId, db }) {
   };
 
   if (db && s?.returnId && !s.returnId.startsWith('ret_TEST')) {
-    await db.collection('returns').doc(s.returnId).update({
-      status:        STATES.HUMAN_REVIEW,
-      escalated_at:  casePacket.escalatedAt,
-      escalation_reason: reason,
-    }).catch(() => {});
+    await transitionReturn({
+      db,
+      returnId: s.returnId,
+      toState: STATES.HUMAN_REVIEW,
+      action: 'ESCALATE',
+      actor: 'agent',
+      data: { reason },
+    }).catch(async () => {
+      await db.collection('returns').doc(s.returnId).update({
+        status:        STATES.HUMAN_REVIEW,
+        escalated_at:  casePacket.escalatedAt,
+        escalation_reason: reason,
+      }).catch(() => {});
+    });
   }
 
   if (s?.returnId) session.updateState(conversationId, STATES.HUMAN_REVIEW);
@@ -558,11 +576,20 @@ async function fileAppeal({ return_id, appeal_reason, uid, conversationId, db })
   }
 
   if (db && !return_id.startsWith('ret_TEST')) {
-    await db.collection('returns').doc(return_id).update({
-      status:         STATES.HUMAN_REVIEW,
-      appeal_reason,
-      appealed_at:    new Date().toISOString(),
-    }).catch(() => {});
+    await transitionReturn({
+      db,
+      returnId: return_id,
+      toState: STATES.HUMAN_REVIEW,
+      action: 'APPEAL',
+      actor: uid,
+      data: { appeal_reason },
+    }).catch(async () => {
+      await db.collection('returns').doc(return_id).update({
+        status:         STATES.HUMAN_REVIEW,
+        appeal_reason,
+        appealed_at:    new Date().toISOString(),
+      }).catch(() => {});
+    });
   }
 
   session.updateState(conversationId, STATES.HUMAN_REVIEW);

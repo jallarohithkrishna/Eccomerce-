@@ -56,7 +56,7 @@ export async function runScenarioF({ logger = console.log } = {}) {
 
   // Step 2: Inspection passes → advance to REFUND_PROCESSING
   logger('\nStep 2: Inspection outcome stored; state advances to REFUND_PROCESSING...');
-  const tInspect = transitionReturn({
+  const tInspect = await transitionReturn({
     returnDoc: currentDoc,
     action: 'INSPECT',
     actor: 'warehouse_service',
@@ -68,7 +68,7 @@ export async function runScenarioF({ logger = console.log } = {}) {
   previousHash = tInspect.auditEvent.hash;
   logger(`  ✓ Status: ${currentDoc.status}`);
 
-  const tProcessing = transitionReturn({
+  const tProcessing = await transitionReturn({
     returnDoc: currentDoc,
     action: 'REFUND_SUCCESS',  // advance to REFUND_PROCESSING manually using toState
     toState: 'REFUND_PROCESSING',
@@ -93,7 +93,7 @@ export async function runScenarioF({ logger = console.log } = {}) {
 
   // Step 4: Transition to REFUND_FAILED
   logger('\nStep 4: State machine moves case to REFUND_FAILED with idempotency key...');
-  const t1 = transitionReturn({
+  const t1 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'REFUND_FAIL',
     actor: 'payment_service',
@@ -127,7 +127,7 @@ export async function runScenarioF({ logger = console.log } = {}) {
   logger('\nStep 5: Max retries (3) reached without bank confirmation. Escalating to staff alert queue...');
   currentDoc.refund_retry_count = 3;
 
-  const t2 = transitionReturn({
+  const t2 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'ESCALATE',
     actor: 'system',

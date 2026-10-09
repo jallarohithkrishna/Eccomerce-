@@ -63,7 +63,7 @@ export async function runScenarioA({ logger = console.log } = {}) {
     item_price: 1499,
   };
 
-  const t1 = transitionReturn({
+  const t1 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'APPROVE',
     actor: 'agent',
@@ -82,7 +82,7 @@ export async function runScenarioA({ logger = console.log } = {}) {
   logger(`  ✓ Carrier Label Created: ${label.labelId} (${label.carrier})`);
   logger(`  ✓ Pickup Slot Booked: ${slot.slot}`);
 
-  const t2 = transitionReturn({
+  const t2 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'SCHEDULE_PICKUP',
     actor: 'carrier_service',
@@ -97,7 +97,7 @@ export async function runScenarioA({ logger = console.log } = {}) {
   // Step 4: Carrier Pickup & In-Transit
   logger('\nStep 4: Courier scans package on customer pickup...');
   await emitTrackingEvent({ returnId, event: 'PACKAGE_PICKED_UP' });
-  const t3 = transitionReturn({
+  const t3 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'PICKUP_COMPLETE',
     actor: 'carrier_service',
@@ -114,7 +114,7 @@ export async function runScenarioA({ logger = console.log } = {}) {
   const receipt = await receiveItem({ returnId });
   logger(`  ✓ Warehouse Received: doc ${receipt.receiptId} at ${receipt.receivedAt}`);
 
-  const t4 = transitionReturn({
+  const t4 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'RECEIVE',
     actor: 'warehouse_service',
@@ -129,7 +129,7 @@ export async function runScenarioA({ logger = console.log } = {}) {
   const inspectRes = await inspectItem({ returnId, outcome: 'pass', condition: 'defect_confirmed' });
   logger(`  ✓ Inspection complete: outcome=${inspectRes.outcome}, eligible=${inspectRes.refundEligible}`);
 
-  const t5 = transitionReturn({
+  const t5 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'INSPECT',
     actor: 'warehouse_service',
@@ -147,7 +147,7 @@ export async function runScenarioA({ logger = console.log } = {}) {
   logger(`  ✓ Payment Gateway Refund: ${refundRes.refundId} (status: ${refundRes.status})`);
 
   // Advance through REFUND_PROCESSING (required intermediate state)
-  const t6a = transitionReturn({
+  const t6a = await transitionReturn({
     returnDoc: currentDoc,
     toState: 'REFUND_PROCESSING',
     action: 'REFUND_SUCCESS',
@@ -160,7 +160,7 @@ export async function runScenarioA({ logger = console.log } = {}) {
   previousHash = t6a.auditEvent.hash;
   logger(`  ✓ Status: ${currentDoc.status}`);
 
-  const t6 = transitionReturn({
+  const t6 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'REFUND_SUCCESS',
     actor: 'payment_service',

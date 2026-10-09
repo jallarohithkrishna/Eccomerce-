@@ -14,7 +14,7 @@
 import * as returnStore from '../returns/store.js';
 import { notify } from '../services/notifier.js';
 import { createEvent, GENESIS_HASH } from '../returns/audit.js';
-import { assertTransition, STATES } from '../returns/stateMachine.js';
+import { assertTransition, STATES, transitionReturn } from '../returns/stateMachine.js';
 import { createAlert } from '../returns/store.js';
 
 export const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;    // 7 days for NEEDS_INFO
@@ -48,40 +48,18 @@ export async function closeStaleReturns(db, { clock = Date.now } = {}) {
       const updatedAtMs = new Date(ret.updatedAt || ret.createdAt || 0).getTime();
       if (updatedAtMs > needsInfoCutoff) continue; // Not stale yet
 
-      // Validate transition through state machine
-      assertTransition(STATES.NEEDS_INFO, STATES.CLOSED_STALE);
-
-      const closedRecord = {
-        ...ret,
-        status: STATES.CLOSED_STALE,
-        updatedAt: nowIso,
-        closedAt: nowIso,
-        closeReason: 'No customer reply for 7+ days',
-      };
-
-      const events = await returnStore.getAuditEvents({ db, returnId: ret.id });
-      const seq = events.length + 1;
-      const previousHash = events.length > 0 ? events[events.length - 1].hash : GENESIS_HASH;
-      const event = createEvent({
-        returnId: ret.id,
+      // Transition through state machine and automatically notify
+      await transitionReturn({
+        db,
+        returnDoc: {
+          ...ret,
+          closedAt: nowIso,
+          closeReason: 'No customer reply for 7+ days',
+        },
+        toState: STATES.CLOSED_STALE,
         action: 'CLOSED_STALE',
         actor: 'system',
         data: { reason: 'No customer reply for 7+ days', closedAt: nowIso },
-        previousHash,
-      });
-      event.seq = seq;
-      event.prevHash = previousHash;
-
-      await returnStore.saveReturn({ db, returnRecord: closedRecord, event });
-
-      // Notify customer
-      await notify({
-        db,
-        returnId: ret.id,
-        toUserId: ret.userId,
-        toEmail: ret.customerEmail || '',
-        subject: 'Your return request has been closed',
-        body: `Your return request (${ret.rma_number || ret.id}) has been closed because we did not receive a response within 7 days. If you still need help, please open a new request.`,
       });
 
       results.closed.push(ret.id);

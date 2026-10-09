@@ -13,7 +13,7 @@
 
 import * as returnStore from '../returns/store.js';
 import { createEvent, GENESIS_HASH } from '../returns/audit.js';
-import { assertTransition, STATES } from '../returns/stateMachine.js';
+import { assertTransition, STATES, transitionReturn } from '../returns/stateMachine.js';
 import { emitTrackingEvent } from '../services/carrier.js';
 
 /**
@@ -47,30 +47,18 @@ export async function pollCarrier(db, { clock = Date.now, mockAlwaysDeliver } = 
         continue;
       }
 
-      // Validate the state machine allows this transition
-      assertTransition(STATES.IN_TRANSIT, STATES.RECEIVED);
-
-      const updatedRecord = {
-        ...ret,
-        status: STATES.RECEIVED,
-        receivedAt: nowIso,
-        updatedAt: nowIso,
-      };
-
-      const events = await returnStore.getAuditEvents({ db, returnId: ret.id });
-      const seq = events.length + 1;
-      const previousHash = events.length > 0 ? events[events.length - 1].hash : GENESIS_HASH;
-      const event = createEvent({
-        returnId: ret.id,
+      // Advance transition through state machine and notify
+      await transitionReturn({
+        db,
+        returnDoc: {
+          ...ret,
+          receivedAt: nowIso,
+        },
+        toState: STATES.RECEIVED,
         action: 'CARRIER_DELIVERED',
         actor: 'carrier-poller',
         data: { trackingEvent, mock: true },
-        previousHash,
       });
-      event.seq = seq;
-      event.prevHash = previousHash;
-
-      await returnStore.saveReturn({ db, returnRecord: updatedRecord, event });
       results.advanced.push(ret.id);
       console.log(`[MOCK_CARRIER] Advanced return ${ret.rma_number || ret.id} (IN_TRANSIT -> RECEIVED)`);
     } catch (err) {

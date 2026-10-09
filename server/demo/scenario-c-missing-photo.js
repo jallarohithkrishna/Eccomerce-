@@ -76,7 +76,7 @@ export async function runScenarioC({ logger = console.log } = {}) {
     item_price: 999,
   };
 
-  const t1 = transitionReturn({
+  const t1 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'REQUEST_EVIDENCE',
     actor: 'agent',
@@ -121,7 +121,7 @@ export async function runScenarioC({ logger = console.log } = {}) {
 
   // Step 5: Resume & Approve
   logger('\nStep 5: Case resumes and transitions from NEEDS_INFO to APPROVED...');
-  const t2 = transitionReturn({
+  const t2 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'APPROVE',
     actor: 'agent',

@@ -26,7 +26,7 @@ import multer from 'multer';
 import { verifyIdToken, requireRole } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { evaluate as evaluatePolicy } from '../policy/engine.js';
-import { assertTransition, normalizeStatus, STATES } from '../returns/stateMachine.js';
+import { assertTransition, normalizeStatus, STATES, transitionReturn } from '../returns/stateMachine.js';
 import { createEvent, verifyChain, GENESIS_HASH } from '../returns/audit.js';
 import { initiateRefund } from '../returns/refunds.js';
 import { analyzeEvidence, detectMimeType, checkUploadRateLimit } from '../agent/evidence.js';
@@ -557,29 +557,23 @@ export function createReturnsRouter(db) {
       return res.status(400).json({ error: `Cannot appeal return with status '${record.status}'. Only REJECTED returns can be appealed.` });
     }
 
-    // The state machine is the authority: REJECTED → HUMAN_REVIEW is the one
-    // legal edge out of REJECTED (the appeal exception). Anything else throws.
     try {
-      assertTransition(normalizeStatus(record.status), STATES.HUMAN_REVIEW);
+      const { updatedDoc } = await transitionReturn({
+        db,
+        returnDoc: {
+          ...record,
+          appealReason: parsed.data.reason,
+          appealedAt: new Date().toISOString(),
+        },
+        toState: STATES.HUMAN_REVIEW,
+        action: 'APPEAL_FILED',
+        actor: uid,
+        data: { reason: parsed.data.reason, from: record.status, to: STATES.HUMAN_REVIEW }
+      });
+      res.json({ success: true, returnRecord: updatedDoc });
     } catch (e) {
       return res.status(409).json({ error: e.message });
     }
-
-    const { updated } = await saveWithAudit({
-      returnRecord: {
-        ...record,
-        id: record.id,
-        status: STATES.HUMAN_REVIEW,
-        status_label: 'Needs Human Review (Appealed)',
-        appealReason: parsed.data.reason,
-        appealedAt: new Date().toISOString(),
-      },
-      actor: uid,
-      action: 'APPEAL_FILED',
-      data: { reason: parsed.data.reason, from: record.status, to: STATES.HUMAN_REVIEW }
-    });
-
-    res.json({ success: true, returnRecord: updated });
   });
 
   // ── 7. GET /agent/returns (Staff view queue) ─────────────────────────────
@@ -605,26 +599,22 @@ export function createReturnsRouter(db) {
     }
 
     try {
-      assertTransition(current, STATES.APPROVED);
+      const { updatedDoc } = await transitionReturn({
+        db,
+        returnDoc: {
+          ...record,
+          approved_by: req.user.uid,
+          approved_at: new Date().toISOString(),
+        },
+        toState: STATES.APPROVED,
+        action: 'STAFF_APPROVED',
+        actor: req.user.uid,
+        data: { from: current, to: STATES.APPROVED }
+      });
+      res.json({ success: true, status: STATES.APPROVED, returnRecord: updatedDoc });
     } catch (e) {
       return res.status(409).json({ error: e.message });
     }
-
-    const { updated } = await saveWithAudit({
-      returnRecord: {
-        ...record,
-        id: record.id,
-        status: STATES.APPROVED,
-        status_label: 'RMA Approved',
-        approved_by: req.user.uid,
-        approved_at: new Date().toISOString(),
-      },
-      actor: req.user.uid,
-      action: 'STAFF_APPROVED',
-      data: { from: current, to: STATES.APPROVED }
-    });
-
-    res.json({ success: true, status: STATES.APPROVED, returnRecord: updated });
   });
 
   // ── 9. POST /agent/returns/:id/deny ───────────────────────────────────────
@@ -642,27 +632,23 @@ export function createReturnsRouter(db) {
 
     const current = normalizeStatus(record.status) || STATES.REQUESTED;
     try {
-      assertTransition(current, STATES.REJECTED);
+      const { updatedDoc } = await transitionReturn({
+        db,
+        returnDoc: {
+          ...record,
+          rejected_by: req.user.uid,
+          rejection_reason: reason,
+          rejected_at: new Date().toISOString(),
+        },
+        toState: STATES.REJECTED,
+        action: 'STAFF_DENIED',
+        actor: req.user.uid,
+        data: { from: current, to: STATES.REJECTED, reason }
+      });
+      res.json({ success: true, status: STATES.REJECTED, returnRecord: updatedDoc });
     } catch (e) {
       return res.status(409).json({ error: e.message });
     }
-
-    const { updated } = await saveWithAudit({
-      returnRecord: {
-        ...record,
-        id: record.id,
-        status: STATES.REJECTED,
-        status_label: 'Rejected',
-        rejected_by: req.user.uid,
-        rejection_reason: reason,
-        rejected_at: new Date().toISOString(),
-      },
-      actor: req.user.uid,
-      action: 'STAFF_DENIED',
-      data: { from: current, to: STATES.REJECTED, reason }
-    });
-
-    res.json({ success: true, status: STATES.REJECTED, returnRecord: updated });
   });
 
   // ── 10. POST /agent/returns/:id/override ──────────────────────────────────
@@ -693,27 +679,23 @@ export function createReturnsRouter(db) {
     }
 
     try {
-      assertTransition(current, targetStatus);
+      const { updatedDoc } = await transitionReturn({
+        db,
+        returnDoc: {
+          ...record,
+          override_by: req.user.uid,
+          override_reason: reason,
+          override_at: new Date().toISOString(),
+        },
+        toState: targetStatus,
+        action: 'STAFF_OVERRIDE',
+        actor: req.user.uid,
+        data: { from: current, to: targetStatus, reason }
+      });
+      res.json({ success: true, status: targetStatus, returnRecord: updatedDoc });
     } catch (e) {
       return res.status(409).json({ error: e.message });
     }
-
-    const { updated } = await saveWithAudit({
-      returnRecord: {
-        ...record,
-        id: record.id,
-        status: targetStatus,
-        status_label: targetStatus === STATES.APPROVED ? 'RMA Approved' : 'Rejected',
-        override_by: req.user.uid,
-        override_reason: reason,
-        override_at: new Date().toISOString(),
-      },
-      actor: req.user.uid,
-      action: 'STAFF_OVERRIDE',
-      data: { from: current, to: targetStatus, reason }
-    });
-
-    res.json({ success: true, status: targetStatus, returnRecord: updated });
   });
 
   // ── 11. POST /warehouse/returns/:id/receive ───────────────────────────────
@@ -724,28 +706,24 @@ export function createReturnsRouter(db) {
 
     const current = normalizeStatus(record.status);
     try {
-      assertTransition(current, STATES.RECEIVED);
+      const { updatedDoc } = await transitionReturn({
+        db,
+        returnDoc: {
+          ...record,
+          warehouse_received_at: new Date().toISOString(),
+          received_by: req.user.uid,
+        },
+        toState: STATES.RECEIVED,
+        action: 'WAREHOUSE_RECEIVED',
+        actor: req.user.uid,
+        data: { from: current, to: STATES.RECEIVED }
+      });
+      return res.json({ success: true, status: STATES.RECEIVED, returnRecord: updatedDoc });
     } catch (e) {
       return res.status(409).json({
         error: `Cannot receive package in state '${record.status}'. Expected IN_TRANSIT. ${e.message}`
       });
     }
-
-    const { updated } = await saveWithAudit({
-      returnRecord: {
-        ...record,
-        id: record.id,
-        status: STATES.RECEIVED,
-        status_label: 'Received at Warehouse',
-        warehouse_received_at: new Date().toISOString(),
-        received_by: req.user.uid,
-      },
-      actor: req.user.uid,
-      action: 'WAREHOUSE_RECEIVED',
-      data: { from: current, to: STATES.RECEIVED }
-    });
-
-    res.json({ success: true, status: STATES.RECEIVED, returnRecord: updated });
   });
 
   // ── 12. POST /warehouse/returns/:id/inspect ───────────────────────────────
@@ -769,87 +747,103 @@ export function createReturnsRouter(db) {
     const current = normalizeStatus(record.status);
 
     // Step 1 — the case must enter INSPECTION before anything is refunded.
+    let inspectionStart;
     try {
-      assertTransition(current, STATES.INSPECTION);
+      const t1 = await transitionReturn({
+        db,
+        returnDoc: {
+          ...record,
+          status_label: 'Under Inspection',
+          inspected_by: req.user.uid,
+          inspected_at: new Date().toISOString(),
+        },
+        toState: STATES.INSPECTION,
+        action: 'INSPECT',
+        actor: req.user.uid,
+      });
+      inspectionStart = t1.updatedDoc;
     } catch (e) {
       return res.status(409).json({
         error: `Cannot inspect package in state '${record.status}'. Expected RECEIVED. ${e.message}`
       });
     }
 
-    const inspectionStart = await returnStore.saveReturn({
-      db,
-      returnRecord: {
-        ...record,
-        id: record.id,
-        status: STATES.INSPECTION,
-        status_label: 'Under Inspection',
-        inspected_by: req.user.uid,
-        inspected_at: new Date().toISOString(),
-      }
-    });
-
     // Step 2 — only now may the case leave INSPECTION for a refund or a rejection.
-    let nextStatus;
     let refundRecord = null;
 
     if (passed) {
-      nextStatus = STATES.REFUND_PROCESSING;
       try {
-        assertTransition(STATES.INSPECTION, STATES.REFUND_PROCESSING);
+        const { updatedDoc: procDoc } = await transitionReturn({
+          db,
+          returnDoc: {
+            ...inspectionStart,
+            inspection_passed: true,
+            inspection_notes: conditionNotes,
+            inspected_by: req.user.uid,
+            inspected_at: new Date().toISOString(),
+          },
+          toState: STATES.REFUND_PROCESSING,
+          action: 'WAREHOUSE_INSPECTION_PASSED',
+          actor: req.user.uid,
+          data: { passed: true, notes: conditionNotes }
+        });
+
+        let finalDoc = procDoc;
+        const amount = Number(record.refund_amount) || Number(record.item?.price) || 100;
+        try {
+          refundRecord = await initiateRefund({
+            returnId: record.id,
+            amount,
+            method: record.resolutionType === 'store_credit' ? 'store_credit' : 'original_payment',
+            initiatedBy: req.user.uid,
+          });
+
+          if (refundRecord?.status === 'COMPLETED') {
+            const { updatedDoc: compDoc } = await transitionReturn({
+              db,
+              returnDoc: {
+                ...finalDoc,
+                refund_record: refundRecord,
+                refund_amount: refundRecord.amount,
+              },
+              toState: STATES.COMPLETED,
+              action: 'REFUND_SUCCESS',
+              actor: req.user.uid,
+              data: { refundStatus: 'COMPLETED', refundRecord }
+            });
+            finalDoc = compDoc;
+          }
+        } catch (refundErr) {
+          console.warn('Refund initiation warning:', refundErr.message);
+        }
+
+        return res.json({ success: true, status: finalDoc.status, refund: refundRecord, returnRecord: finalDoc });
       } catch (e) {
         return res.status(409).json({ error: e.message });
       }
-
-      // Refund saga runs only from INSPECTION → REFUND_PROCESSING.
+    } else {
       try {
-        const amount = Number(record.refund_amount) || Number(record.item?.price) || 100;
-        refundRecord = await initiateRefund({
-          returnId: record.id,
-          amount,
-          method: record.resolutionType === 'store_credit' ? 'store_credit' : 'original_payment',
-          initiatedBy: req.user.uid,
+        const { updatedDoc } = await transitionReturn({
+          db,
+          returnDoc: {
+            ...inspectionStart,
+            inspection_passed: false,
+            inspection_notes: conditionNotes || failureReason,
+            rejection_reason: conditionNotes || failureReason || 'Failed physical inspection',
+            inspected_by: req.user.uid,
+            inspected_at: new Date().toISOString(),
+          },
+          toState: STATES.REJECTED,
+          action: 'WAREHOUSE_INSPECTION_FAILED',
+          actor: req.user.uid,
+          data: { passed: false, reason: conditionNotes || failureReason }
         });
 
-        if (refundRecord?.status === 'COMPLETED') {
-          assertTransition(STATES.REFUND_PROCESSING, STATES.COMPLETED);
-          nextStatus = STATES.COMPLETED;
-        }
-      } catch (refundErr) {
-        console.warn('Refund initiation warning:', refundErr.message);
-      }
-    } else {
-      nextStatus = STATES.REJECTED;
-      try {
-        assertTransition(STATES.INSPECTION, STATES.REJECTED);
+        return res.json({ success: true, status: STATES.REJECTED, refund: null, returnRecord: updatedDoc });
       } catch (e) {
         return res.status(409).json({ error: e.message });
       }
     }
-
-    const { updated } = await saveWithAudit({
-      returnRecord: {
-        ...inspectionStart,
-        id: record.id,
-        status: nextStatus,
-        status_label: nextStatus === STATES.COMPLETED ? 'Refund Completed' : (passed ? 'Refund Processing' : 'Rejected at Inspection'),
-        inspection_passed: passed,
-        inspection_notes: conditionNotes || failureReason,
-        inspected_by: req.user.uid,
-        inspected_at: new Date().toISOString(),
-        refund_record: refundRecord,
-      },
-      actor: req.user.uid,
-      action: passed ? 'WAREHOUSE_INSPECTION_PASSED' : 'WAREHOUSE_INSPECTION_FAILED',
-      data: {
-        passed,
-        nextStatus,
-        notes: conditionNotes || failureReason,
-        refundStatus: refundRecord?.status || 'N/A'
-      }
-    });
-
-    res.json({ success: true, status: nextStatus, refund: refundRecord, returnRecord: updated });
   });
 
   // ── 13. POST /webhooks/carrier ────────────────────────────────────────────
@@ -945,26 +939,24 @@ export function createReturnsRouter(db) {
     // Only legal transitions are accepted; anything else is refused outright.
     if (targetStatus !== current) {
       try {
-        assertTransition(current, targetStatus);
+        const { updatedDoc } = await transitionReturn({
+          db,
+          returnDoc: {
+            ...record,
+            carrier_tracking: trackingNumber || record.pickup_details?.tracking_number,
+            last_carrier_status: carrierStatus,
+            last_carrier_update: new Date().toISOString(),
+          },
+          toState: targetStatus,
+          action: 'CARRIER_STATUS_UPDATE',
+          actor: 'carrier_webhook',
+          data: { carrierStatus, trackingNumber, from: current, to: targetStatus }
+        });
+        return res.json({ success: true, returnId: record.id, status: targetStatus, returnRecord: updatedDoc });
       } catch (e) {
         return res.status(409).json({ error: `Carrier event '${carrierStatus}' refused: ${e.message}` });
       }
     }
-
-    const { updated } = await saveWithAudit({
-      returnRecord: {
-        ...record,
-        id: record.id,
-        status: targetStatus,
-        status_label: targetStatus === current ? record.status_label : targetStatus,
-        carrier_tracking: trackingNumber || record.pickup_details?.tracking_number,
-        last_carrier_status: carrierStatus,
-        last_carrier_update: new Date().toISOString(),
-      },
-      actor: 'carrier_webhook',
-      action: 'CARRIER_STATUS_UPDATE',
-      data: { carrierStatus, trackingNumber, from: current, to: targetStatus }
-    });
 
     res.json({ success: true, returnId: record.id, status: targetStatus });
   });

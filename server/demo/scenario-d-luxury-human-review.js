@@ -80,7 +80,7 @@ export async function runScenarioD({ logger = console.log } = {}) {
     item_price: itemPrice,
   };
 
-  const t1 = transitionReturn({
+  const t1 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'ESCALATE',
     actor: 'agent',

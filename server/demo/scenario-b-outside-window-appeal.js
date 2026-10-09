@@ -60,7 +60,7 @@ export async function runScenarioB({ logger = console.log } = {}) {
     item_price: 3499,
   };
 
-  const t1 = transitionReturn({
+  const t1 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'REJECT',
     actor: 'system',
@@ -88,7 +88,7 @@ export async function runScenarioB({ logger = console.log } = {}) {
   logger('\nStep 3: Customer submits formal appeal with supporting reasoning...');
   const appealReason = 'I was hospitalized for emergency surgery from day 5 to day 30. Medical discharge summary available.';
 
-  const t2 = transitionReturn({
+  const t2 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'APPEAL',
     actor: 'customer',
@@ -105,7 +105,7 @@ export async function runScenarioB({ logger = console.log } = {}) {
 
   // Step 4: System Escalates to Human Review
   logger('\nStep 4: System routes appealed case to staff review queue...');
-  const t3 = transitionReturn({
+  const t3 = await transitionReturn({
     returnDoc: currentDoc,
     action: 'ESCALATE',
     actor: 'system',
