@@ -216,20 +216,6 @@ export function createReturnsRouter(db) {
         let alreadyReturnedQty = 0;
         const countedReturnIds = new Set();
 
-        if (Array.isArray(order.returns)) {
-          for (const ret of order.returns) {
-            const retId = ret.id || ret.returnId || ret.rma_number;
-            if (retId && countedReturnIds.has(retId)) continue;
-            if (retId) countedReturnIds.add(retId);
-
-            const retProdId = String(ret.productId || ret.product_id || ret.item?.product_id || ret.item?.id || '');
-            const retStatus = normalizeStatus(ret.status);
-            if (retProdId === targetProdId && retStatus !== STATES.REJECTED) {
-              alreadyReturnedQty += Number(ret.quantity || ret.item?.quantity || 1);
-            }
-          }
-        }
-
         const existingReturns = await returnStore.getReturnsForOrder({ db, orderId });
         for (const ret of existingReturns) {
           const retId = ret.id || ret.returnId || ret.rma_number;

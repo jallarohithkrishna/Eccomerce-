@@ -14,11 +14,11 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Return Modal State
   const [selectedOrderForReturn, setSelectedOrderForReturn] = useState(null);
   const [returnModalExistingReturn, setReturnModalExistingReturn] = useState(null);
   const [returnModalInitialTab, setReturnModalInitialTab] = useState(null);
   const [simulating, setSimulating] = useState(null);
+  const [returnsByOrderId, setReturnsByOrderId] = useState({});
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -58,9 +58,45 @@ export default function Orders() {
     return () => unsubscribe();
   }, [user]);
 
+  // Real-time listener on returns collection (migrated from order.returns[])
+  useEffect(() => {
+    if (!user) return;
+
+    const qReturns = query(
+      collection(db, 'returns'),
+      where('userId', '==', user.uid)
+    );
+
+    const unsubscribe = onSnapshot(qReturns, (snapshot) => {
+      const byOrder = {};
+      snapshot.docs.forEach(docSnap => {
+        const ret = { id: docSnap.id, ...docSnap.data() };
+        const orderId = ret.orderId || ret.order_id;
+        if (orderId) {
+          if (!byOrder[orderId]) byOrder[orderId] = [];
+          byOrder[orderId].push(ret);
+        }
+      });
+      Object.keys(byOrder).forEach(ordId => {
+        byOrder[ordId].sort((a, b) => {
+          const tA = new Date(a.created_at || a.createdAt || 0).getTime();
+          const tB = new Date(b.created_at || b.createdAt || 0).getTime();
+          return tA - tB;
+        });
+      });
+      setReturnsByOrderId(byOrder);
+    }, (err) => {
+      console.warn("Error fetching returns for orders:", err);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
   const openReturnModal = (order, existingReturn = null, forceInitiate = false) => {
-    setSelectedOrderForReturn(order);
-    const targetReturn = existingReturn || (order?.returns && order.returns.length > 0 ? order.returns[order.returns.length - 1] : null);
+    const orderReturns = returnsByOrderId[order.id] || [];
+    const enrichedOrder = { ...order, returns: orderReturns };
+    setSelectedOrderForReturn(enrichedOrder);
+    const targetReturn = existingReturn || (orderReturns.length > 0 ? orderReturns[orderReturns.length - 1] : null);
     setReturnModalExistingReturn(targetReturn);
     setReturnModalInitialTab(forceInitiate ? 'initiate' : (targetReturn ? 'track' : 'initiate'));
   };
@@ -143,10 +179,11 @@ export default function Orders() {
         ) : (
           <div className="space-y-6">
             {orders.map((order) => {
-              const hasReturns = order.returns && order.returns.length > 0;
-              const latestReturn = hasReturns ? order.returns[order.returns.length - 1] : null;
+              const orderReturns = returnsByOrderId[order.id] || [];
+              const hasReturns = orderReturns.length > 0;
+              const latestReturn = hasReturns ? orderReturns[orderReturns.length - 1] : null;
               const isDelivered = order.status === 'delivered';
-              const allItemsReturned = order.items?.length > 0 && order.returns?.length >= order.items.length;
+              const allItemsReturned = order.items?.length > 0 && orderReturns.length >= order.items.length;
               const allItemsElectronics = order.items?.length > 0 && order.items.every(item => isElectronicsItem(item));
 
               return (

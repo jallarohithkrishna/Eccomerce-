@@ -67,44 +67,38 @@ export default function Returns() {
     setSearchParams({ tab });
   };
 
-  // Real-time listener on customer's returns
+  // Real-time listener on customer's returns — reads ONLY returns collection (migrated from orders.returns[])
   useEffect(() => {
     if (!user) return;
 
-    // Listen to orders to gather all customer returns
-    const qOrders = query(
-      collection(db, 'orders'),
-      where('customer.user_id', '==', user.uid)
+    const qReturns = query(
+      collection(db, 'returns'),
+      where('userId', '==', user.uid)
     );
 
-    const unsubscribe = onSnapshot(qOrders, (snapshot) => {
-      const allReturns = [];
-
-      snapshot.forEach(docSnap => {
-        const orderData = docSnap.data();
-        if (Array.isArray(orderData.returns)) {
-          orderData.returns.forEach(ret => {
-            allReturns.push({
-              ...ret,
-              order_id: docSnap.id,
-              order_number: orderData.order_number,
-              customer_address: orderData.customer?.address
-            });
-          });
-        }
+    const unsubscribe = onSnapshot(qReturns, (snapshot) => {
+      const allReturns = snapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return {
+          ...data,
+          id: docSnap.id,
+          order_id: data.orderId || data.order_id,
+          order_number: data.order_number || data.orderId || data.order_id,
+          created_at: data.created_at || data.createdAt,
+        };
       });
 
       // Sort descending by created_at
       allReturns.sort((a, b) => {
-        const timeA = new Date(a.created_at || 0).getTime();
-        const timeB = new Date(b.created_at || 0).getTime();
+        const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
+        const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
         return timeB - timeA;
       });
 
       setReturnsList(allReturns);
       setLoadingReturns(false);
     }, (err) => {
-      console.error('Error fetching returns:', err);
+      console.error('Error fetching returns from returns collection:', err);
       setLoadingReturns(false);
     });
 

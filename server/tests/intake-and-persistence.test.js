@@ -618,11 +618,10 @@ describe('3. Firestore Branch & Persistence Requirements', () => {
   });
 
   it('saveReturn syncs return record into Firestore orders doc returns array', async () => {
-    // Seed initial order in Firestore
+    // Seed initial order in Firestore without returns field
     await mockDb.collection('orders').doc('ord_fs_sync').set({
       id: 'ord_fs_sync',
       order_number: 'ORD-998877',
-      returns: [],
     });
 
     const returnRecord = {
@@ -636,13 +635,21 @@ describe('3. Firestore Branch & Persistence Requirements', () => {
 
     await returnStore.saveReturn({ db: mockDb, returnRecord });
 
-    // Verify order doc in Firestore contains the return in its returns array
+    // Verify return doc is stored directly in returns collection
+    const returnInFirestore = mockDb._store.returns.get('ret_fs_sync_1');
+    assert.ok(returnInFirestore, 'return document must exist in Firestore returns collection');
+    assert.equal(returnInFirestore.rma_number, 'RMA-FS-SYNC-01');
+    assert.equal(returnInFirestore.id, 'ret_fs_sync_1');
+
+    // Verify order doc does NOT have returns[] written to it (migrated away)
     const orderInFirestore = mockDb._store.orders.get('ord_fs_sync');
     assert.ok(orderInFirestore, 'order document must exist in Firestore');
-    assert.ok(Array.isArray(orderInFirestore.returns), 'order.returns must be an array');
-    assert.equal(orderInFirestore.returns.length, 1);
-    assert.equal(orderInFirestore.returns[0].rma_number, 'RMA-FS-SYNC-01');
-    assert.equal(orderInFirestore.returns[0].id, 'ret_fs_sync_1');
+    assert.strictEqual(orderInFirestore.returns, undefined, 'order.returns[] must not be written');
+
+    // Verify getReturnsForOrder reads directly from returns collection
+    const retrieved = await returnStore.getReturnsForOrder({ db: mockDb, orderId: 'ord_fs_sync' });
+    assert.equal(retrieved.length, 1);
+    assert.equal(retrieved[0].rma_number, 'RMA-FS-SYNC-01');
   });
 
   it('Server restart (in-memory wipe) recovers returns from Firestore', async () => {
@@ -688,12 +695,12 @@ describe('3. Firestore Branch & Persistence Requirements', () => {
     assert.ok(list.length >= 1, 'listReturns must query Firestore when memory is empty');
     assert.equal(list[0].id, returnId);
 
-    // 4. Verify order doc in Firestore retained the return in returns array
-    const orderDoc = mockDb._store.orders.get('ord_restart_test');
-    assert.ok(orderDoc.returns.some(r => r.rma_number === rmaNumber));
+    // 4. Verify return doc in Firestore is loaded through getReturnsForOrder
+    const returnsForOrder = await returnStore.getReturnsForOrder({ db: mockDb, orderId: 'ord_restart_test' });
+    assert.ok(returnsForOrder.some(r => r.rma_number === rmaNumber));
   });
 
-  it('Status updates (approval, inspection, webhook) stay synchronized in Firestore orders collection', async () => {
+  it('Status updates (approval, inspection, webhook) stay synchronized in Firestore returns collection', async () => {
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     await returnStore.seedOrder({
       db: mockDb,
@@ -722,12 +729,15 @@ describe('3. Firestore Branch & Persistence Requirements', () => {
     });
     assert.equal(approveRes.status, 200);
 
-    // Verify Firestore order doc has status updated to APPROVED
+    // Verify Firestore return doc in returns collection has status updated to APPROVED
+    const returnInFs = mockDb._store.returns.get(returnId);
+    assert.ok(returnInFs);
+    assert.equal(returnInFs.status, 'APPROVED');
+    assert.equal(returnInFs.status_label, 'RMA Approved');
+
+    // And verify order doc has NO returns[] written (migrated away)
     const orderInFs = mockDb._store.orders.get('ord_lifecycle');
-    const matchedReturn = orderInFs.returns.find(r => r.rma_number === rma);
-    assert.ok(matchedReturn);
-    assert.equal(matchedReturn.status, 'APPROVED');
-    assert.equal(matchedReturn.status_label, 'RMA Approved');
+    assert.strictEqual(orderInFs.returns, undefined);
   });
 
   it('Audit events are written to returns/{id}/events in the same batch and verified via GET /returns/:id/audit after cold start', async () => {

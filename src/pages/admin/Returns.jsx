@@ -36,37 +36,32 @@ export default function AdminReturns() {
   const [replyLoading, setReplyLoading] = useState(false);
   const [inboxCases, setInboxCases]   = useState([]);
 
-  const processOrdersDocs = (docs, isAppend = false) => {
+  const processReturnsDocs = (docs, isAppend = false) => {
     setAllReturns(prevReturns => {
-      const returnsMap = isAppend ? new Map(prevReturns.map(r => [r.rma_number, r])) : new Map();
+      const returnsMap = isAppend ? new Map(prevReturns.map(r => [r.rma_number || r.id, r])) : new Map();
 
       docs.forEach(docSnap => {
-        const orderData = docSnap.data();
-        if (Array.isArray(orderData.returns)) {
-          orderData.returns.forEach(ret => {
-            if (ret.rma_number) {
-              returnsMap.set(ret.rma_number, {
-                ...ret,
-                order_id: docSnap.id,
-                order_number: orderData.order_number || ret.order_number,
-                customer: ret.customer || {
-                  full_name: orderData.customer?.full_name || 'Customer',
-                  email: orderData.customer?.email || 'N/A',
-                  phone: orderData.customer?.phone || '',
-                  address: orderData.customer?.address 
-                    ? `${orderData.customer.address.street || ''}, ${orderData.customer.address.city || ''}`
-                    : 'N/A'
-                }
-              });
-            }
-          });
-        }
+        const ret = docSnap.data();
+        const rma = ret.rma_number || docSnap.id;
+        returnsMap.set(rma, {
+          ...ret,
+          id: docSnap.id,
+          order_id: ret.orderId || ret.order_id,
+          order_number: ret.order_number || ret.orderId || ret.order_id,
+          created_at: ret.created_at || ret.createdAt,
+          customer: ret.customer || {
+            full_name: ret.customer_name || 'Customer',
+            email: ret.customer_email || 'N/A',
+            phone: ret.customer_phone || '',
+            address: ret.customer_address || 'N/A',
+          },
+        });
       });
 
       const list = Array.from(returnsMap.values());
       list.sort((a, b) => {
-        const timeA = new Date(a.created_at || 0).getTime();
-        const timeB = new Date(b.created_at || 0).getTime();
+        const timeA = new Date(a.created_at || a.createdAt || 0).getTime();
+        const timeB = new Date(b.created_at || b.createdAt || 0).getTime();
         return timeB - timeA;
       });
 
@@ -74,20 +69,28 @@ export default function AdminReturns() {
     });
   };
 
-  // Real-time listener for first page of orders
+  // Real-time listener for first page of returns — reads ONLY returns collection (migrated from orders)
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('created_at', 'desc'), limit(PAGE_SIZE));
-    const unsubOrders = onSnapshot(q, (snapshot) => {
-      processOrdersDocs(snapshot.docs, false);
+    const q = query(collection(db, 'returns'), orderBy('created_at', 'desc'), limit(PAGE_SIZE));
+    const unsubReturns = onSnapshot(q, (snapshot) => {
+      processReturnsDocs(snapshot.docs, false);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
       setLoading(false);
     }, (err) => {
-      console.error('Error fetching admin returns:', err);
-      setLoading(false);
+      console.error('Error fetching admin returns from returns collection:', err);
+      // Fallback without orderBy in case index pending
+      getDocs(query(collection(db, 'returns'), limit(PAGE_SIZE)))
+        .then(snap => {
+          processReturnsDocs(snap.docs, false);
+          setLastDoc(snap.docs[snap.docs.length - 1] || null);
+          setHasMore(snap.docs.length === PAGE_SIZE);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
     });
 
-    return () => unsubOrders();
+    return () => unsubReturns();
   }, []);
 
   const handleLoadMore = async () => {
@@ -95,13 +98,13 @@ export default function AdminReturns() {
     setLoadingMore(true);
     try {
       const q = query(
-        collection(db, 'orders'),
+        collection(db, 'returns'),
         orderBy('created_at', 'desc'),
         startAfter(lastDoc),
         limit(PAGE_SIZE)
       );
       const snapshot = await getDocs(q);
-      processOrdersDocs(snapshot.docs, true);
+      processReturnsDocs(snapshot.docs, true);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
     } catch (err) {

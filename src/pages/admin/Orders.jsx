@@ -13,7 +13,22 @@ export default function AdminOrders() {
   const [hasMore, setHasMore] = useState(true);
   const [updating, setUpdating] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [selectedOrderReturns, setSelectedOrderReturns] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    if (!selectedOrder?.id) {
+      setSelectedOrderReturns([]);
+      return;
+    }
+    const qRet = query(collection(db, 'returns'), where('orderId', '==', selectedOrder.id));
+    getDocs(qRet).then(snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setSelectedOrderReturns(list);
+    }).catch(err => {
+      console.warn('Failed to load returns for selected order:', err);
+    });
+  }, [selectedOrder?.id]);
 
   useEffect(() => {
     const q = query(collection(db, 'orders'), orderBy('created_at', 'desc'), limit(PAGE_SIZE));
@@ -403,15 +418,15 @@ export default function AdminOrders() {
                 </div>
               </div>
 
-              {/* Return & RMA Requests (if any) */}
-              {selectedOrder.returns && selectedOrder.returns.length > 0 && (
+              {/* Return & RMA Requests (migrated: read from returns collection) */}
+              {selectedOrderReturns && selectedOrderReturns.length > 0 && (
                 <div>
                   <h3 className="text-sm font-bold text-purple-900 mb-3 uppercase tracking-wider flex items-center gap-2">
                     <RotateCcw className="w-4 h-4 text-purple-600" />
-                    Return Requests ({selectedOrder.returns.length})
+                    Return Requests ({selectedOrderReturns.length})
                   </h3>
                   <div className="space-y-3">
-                    {selectedOrder.returns.map((ret, idx) => (
+                    {selectedOrderReturns.map((ret, idx) => (
                       <div key={idx} className="bg-purple-50/70 border border-purple-200 rounded-xl p-4 text-xs space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="font-mono font-bold text-sm text-purple-950">{ret.rma_number}</span>

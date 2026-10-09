@@ -54,7 +54,6 @@ export async function seedOrder({ db, order } = {}) {
   if (!order || !order.id) throw new Error('seedOrder requires an order with an id');
   const record = {
     ...order,
-    returns: Array.isArray(order.returns) ? [...order.returns] : [],
   };
   orderRecords.set(order.id, record);
 
@@ -204,16 +203,7 @@ export async function getReturnsForOrder({ db, orderId }) {
     }
   }
 
-  // 2. From in-memory order record's returns array
-  const order = orderRecords.get(cleanId);
-  if (order && Array.isArray(order.returns)) {
-    for (const r of order.returns) {
-      const rid = r.id || r.returnId || r.rma_number;
-      if (rid && !results.has(rid)) results.set(rid, r);
-    }
-  }
-
-  // 3. From Firestore returns collection if syncing
+  // 2. From Firestore returns collection if syncing
   if (shouldSync(db)) {
     try {
       const q = await db.collection('returns').where('orderId', '==', cleanId).get();
@@ -317,26 +307,7 @@ export async function saveReturn({ db, returnRecord, event }) {
     returnEvents.set(id, chain);
   }
 
-  // 1. Sync to in-memory order record if present
-  const orderId = record.orderId || record.order_id;
-  if (orderId && orderRecords.has(orderId)) {
-    const order = orderRecords.get(orderId);
-    const existingReturns = Array.isArray(order.returns) ? [...order.returns] : [];
-    const idx = existingReturns.findIndex(r =>
-      (r.rma_number && record.rma_number && r.rma_number.toUpperCase() === record.rma_number.toUpperCase()) ||
-      (r.id && r.id === id) ||
-      (r.returnId && r.returnId === id)
-    );
-    if (idx >= 0) {
-      existingReturns[idx] = { ...existingReturns[idx], ...record };
-    } else {
-      existingReturns.push(record);
-    }
-    order.returns = existingReturns;
-    orderRecords.set(orderId, order);
-  }
-
-  // 2. Sync to Firestore (both `returns` and `orders` collections, and `returns/{id}/events` in same batch)
+  // Sync to Firestore returns collection and audit events
   if (shouldSync(db)) {
     try {
       if (typeof db.batch === 'function') {
@@ -363,30 +334,6 @@ export async function saveReturn({ db, returnRecord, event }) {
       }
     } catch (err) {
       console.warn(`Firestore saveReturn error (${id}):`, err.message);
-    }
-
-    if (orderId) {
-      try {
-        const orderRef = db.collection('orders').doc(orderId);
-        const orderSnap = await orderRef.get();
-        if (orderSnap.exists) {
-          const orderData = orderSnap.data() || {};
-          const existingReturns = Array.isArray(orderData.returns) ? [...orderData.returns] : [];
-          const idx = existingReturns.findIndex(r =>
-            (r.rma_number && record.rma_number && r.rma_number.toUpperCase() === record.rma_number.toUpperCase()) ||
-            (r.id && r.id === id) ||
-            (r.returnId && r.returnId === id)
-          );
-          if (idx >= 0) {
-            existingReturns[idx] = { ...existingReturns[idx], ...record };
-          } else {
-            existingReturns.push(record);
-          }
-          await orderRef.set({ returns: existingReturns }, { merge: true });
-        }
-      } catch (err) {
-        console.warn(`Firestore sync order returns error (${orderId}):`, err.message);
-      }
     }
   }
 
