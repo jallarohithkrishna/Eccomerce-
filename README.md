@@ -340,7 +340,7 @@ Follow this strict step-by-step checklist before deploying security rules or pro
 
 1. **Execute All Test Suites**:
    ```bash
-   # Run all 253 backend orchestrator, policy, and agent tests
+   # Run all 262+ backend orchestrator, policy, and agent tests
    npm --prefix server test
 
    # Run Firestore security rules test
@@ -350,20 +350,46 @@ Follow this strict step-by-step checklist before deploying security rules or pro
    npm run build
    ```
 
-2. **Emulator Flow Verification (Manual Smoke Click-Through)**:
+2. **Start Local Emulators**:
+   The `firebase.json` emulators block configures the following ports (used automatically by `npm test`):
+   - **Auth emulator**: `http://localhost:9099`
+   - **Firestore emulator**: `http://localhost:8080`
+   - **Emulator UI**: `http://localhost:4000`
+
+   ```bash
+   firebase emulators:start --only auth,firestore
+   ```
+
+3. **Emulator Flow Verification (Manual Smoke Click-Through)**:
    Start local emulators and dev server (`firebase emulators:start --only auth,firestore` and `npm run dev`), then click through:
    - [ ] **Login**: Sign in with customer account (`customera@example.com` / `Password123!`) and admin account (`admin@example.com` / `Password123!`).
    - [ ] **Checkout**: Add products to cart and complete an order; verify order is persisted with server timestamp and clean status.
    - [ ] **Orders**: Navigate to `/orders`; verify orders load, delivery status appears, and "AI Return Agent" button is active for delivered items.
    - [ ] **Reviews**: Open product detail page and post a review; verify review is bound strictly to authenticated user UID.
-   - [ ] **Returns**: Open `/returns`; test chat with AI Return Assistant, check photo evidence upload, and verify RMA stepper.
-   - [ ] **Admin**: Access `/admin`, `/admin/orders`, `/admin/returns`, and `/admin/agent-runs`; verify single-document metrics load and trace drawer opens.
+   - [ ] **Returns**: Open `/returns`; test chat with AI Return Assistant, check photo evidence upload, and verify RMA stepper and message thread.
+   - [ ] **Admin**: Access `/admin`, `/admin/orders`, `/admin/returns`, `/admin/warehouse`, and `/admin/agent-runs`; verify single-document metrics load and trace drawer opens.
+   - [ ] **Warehouse Dock**: Log in as `warehouse@example.com`; confirm redirect to `/admin/warehouse`, only Warehouse Dock nav shown.
 
-3. **Deploy Firestore Rules**:
+4. **Back Up Live Console Rules Before Deploying**:
+   > ⚠️ **ALWAYS** run this step before deploying new Firestore rules to capture the current live state:
+   ```bash
+   # Copy live console rules to a file before deploying
+   firebase firestore:get-rules --project YOUR_PROJECT_ID > firestore.rules.live-backup-$(Get-Date -Format 'yyyyMMdd').rules
+   ```
+   Save the backup file in the project root or a `backups/` directory and commit it to a separate branch if needed.
+
+5. **Deploy Firestore Rules**:
    Deploy only the validated security rules to Firebase:
    ```bash
    firebase deploy --only firestore:rules
    ```
+
+6. **Deploy Firestore Indexes**:
+   All compound indexes for the app's queries are in `firestore.indexes.json`. Deploy before any release that adds new queries:
+   ```bash
+   firebase deploy --only firestore:indexes
+   ```
+   This is safe to run multiple times (idempotent). New indexes may take a few minutes to build.
 
 4. **Smoke-Test the Live Deployment**:
    - [ ] Log in with one real customer account on production.
@@ -372,10 +398,10 @@ Follow this strict step-by-step checklist before deploying security rules or pro
 
 5. **Rollback Plan**:
    If an unexpected permission error occurs in production, immediately roll back to the previous verified rules commit:
-   - **Previous Rules Commit Hash**: `f6ef401`
+   - **Previous Rules Commit Hash**: `809990f`
    - **Rollback Command**:
      ```bash
-     git checkout f6ef401 -- firestore.rules
+     git checkout 809990f -- firestore.rules
      firebase deploy --only firestore:rules
      ```
 
