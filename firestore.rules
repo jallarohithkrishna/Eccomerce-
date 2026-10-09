@@ -122,6 +122,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── SYSTEM METRICS ────────────────────────────────────────────────────────
+    // Aggregated telemetry counters kept in one document. Staff read only.
+    match /system_metrics/{metricId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    // ── AGENT CONVERSATIONS ───────────────────────────────────────────────────
+    // Multi-turn agent run transcripts and audit traces. Staff read only.
+    match /agent_conversations/{conversationId} {
+      allow read: if isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if false;
+    }
+
     // ── PRODUCTS ─────────────────────────────────────────────────────────────
     match /products/{productId} {
       allow read: if true;

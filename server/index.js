@@ -18,6 +18,7 @@ import {
   analyzeEvidence, detectMimeType, storeEvidence, checkUploadRateLimit
 } from './agent/evidence.js';
 import * as session         from './agent/session.js';
+import * as metrics         from './agent/metrics.js';
 import { createEvent, GENESIS_HASH } from './returns/audit.js';
 import { assertTransition, normalizeStatus, STATES } from './returns/stateMachine.js';
 import * as returnStore from './returns/store.js';
@@ -445,10 +446,28 @@ app.post('/agent/chat',
       });
     }
 
+    const t0 = Date.now();
     try {
-      const { reply, caseCard, auditEvents } = await runLoop({
+      const { reply, caseCard, auditEvents, dailyCapExceeded } = await runLoop({
         userMessage: message, conversationId, uid, db,
       });
+      const latencyMs = Date.now() - t0;
+
+      const toolCalls = (auditEvents || [])
+        .filter(e => e.actor === 'agent' && e.action !== 'PROMPT_INJECTION_DETECTED' && e.action !== 'ESCALATE_TO_HUMAN')
+        .map(e => e.action);
+      const escalated = (auditEvents || []).some(e => e.action === 'ESCALATE_TO_HUMAN') || caseCard?.state === 'HUMAN_REVIEW';
+      const blocked = Boolean(dailyCapExceeded) || (auditEvents || []).some(e => e.action === 'PROMPT_INJECTION_DETECTED');
+
+      // Record metrics into the single counters document
+      metrics.recordAgentRun({
+        db,
+        conversationId,
+        latencyMs,
+        toolCalls,
+        escalated,
+        blocked,
+      }).catch(() => {});
 
       // Persist conversation for resume + staff audit
       await conversations.saveConversation({
@@ -614,6 +633,33 @@ app.get('/agent/inbox',
     }
     const list = await conversations.listNeedsHuman({ db, limitN: 25 });
     res.json({ cases: list });
+  }
+);
+
+// ─── GET /agent/runs (bounded query with limit 50; staff/admin only) ─────────
+app.get('/agent/runs',
+  authMiddleware,
+  async (req, res) => {
+    const { role } = req.user;
+    if (role !== 'staff' && role !== 'admin') {
+      return res.status(403).json({ error: 'Staff or admin role required' });
+    }
+    const limitN = Math.min(parseInt(req.query.limit, 10) || 50, 50);
+    const runs = await metrics.listAgentRuns({ db, limitN });
+    res.json({ runs });
+  }
+);
+
+// ─── GET /agent/metrics (counters kept in one document; staff/admin only) ────
+app.get('/agent/metrics',
+  authMiddleware,
+  async (req, res) => {
+    const { role } = req.user;
+    if (role !== 'staff' && role !== 'admin') {
+      return res.status(403).json({ error: 'Staff or admin role required' });
+    }
+    const data = await metrics.getMetrics({ db });
+    res.json(data);
   }
 );
 

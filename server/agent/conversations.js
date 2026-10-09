@@ -138,4 +138,5 @@ export async function listNeedsHuman({ db, limitN = 25 }) {
 /** Test helpers */
 export function _set(id, data) { convStore.set(id, data); }
 export function _get(id) { return convStore.get(id); }
+export function _getAll() { return Array.from(convStore.values()); }
 export function _clearAll() { convStore.clear(); }

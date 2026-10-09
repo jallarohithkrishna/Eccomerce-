@@ -1,5 +1,5 @@
 import { Link, Outlet, Navigate, useLocation } from 'react-router-dom';
-import { Package, LayoutDashboard, LogOut, ShieldX, ClipboardList, RotateCcw } from 'lucide-react';
+import { Package, LayoutDashboard, LogOut, ShieldX, ClipboardList, RotateCcw, Bot } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useRef } from 'react';
 import VoiceAssistant from './VoiceAssistant';
@@ -92,6 +92,9 @@ export default function AdminLayout() {
           </Link>
           <Link to="/admin/returns" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
             <RotateCcw className="h-5 w-5 mr-2 md:mr-3" /> <span className="hidden sm:inline md:block">Returns &amp; RMA</span>
+          </Link>
+          <Link to="/admin/agent-runs" className="flex items-center whitespace-nowrap px-4 py-3 text-slate-700 hover:bg-slate-50 hover:text-primary-600 rounded-lg font-medium transition-colors">
+            <Bot className="h-5 w-5 mr-2 md:mr-3 text-indigo-500" /> <span className="hidden sm:inline md:block">Agent Runs</span>
           </Link>
 
           {/* ── Mobile JARVIS Button ── */}
