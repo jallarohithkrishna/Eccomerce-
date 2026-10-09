@@ -4,6 +4,8 @@
  * No LLM dependency. Pure deterministic logic.
  */
 
+import { createEvent } from './audit.js';
+
 export const STATES = Object.freeze({
   REQUESTED:           'REQUESTED',
   VERIFYING:           'VERIFYING',
@@ -55,7 +57,7 @@ const TRANSITION_MAP = {
   [STATES.REFUND_PROCESSING]:   new Set([STATES.COMPLETED, STATES.HUMAN_REVIEW, STATES.REFUND_FAILED]),
   [STATES.REFUND_FAILED]:       new Set([STATES.REFUND_PROCESSING, STATES.HUMAN_REVIEW, STATES.REJECTED]),
   [STATES.REPLACEMENT_SHIPPED]: new Set([STATES.COMPLETED]),
-  [STATES.NEEDS_INFO]:          new Set([STATES.VERIFYING, STATES.ELIGIBILITY_CHECK, STATES.HUMAN_REVIEW, STATES.CLOSED_STALE]),
+  [STATES.NEEDS_INFO]:          new Set([STATES.VERIFYING, STATES.ELIGIBILITY_CHECK, STATES.APPROVED, STATES.REJECTED, STATES.HUMAN_REVIEW, STATES.CLOSED_STALE]),
   [STATES.COMPLETED]:           new Set(), // terminal
   [STATES.CLOSED_STALE]:        new Set(), // terminal
   // Terminal except for the appeal exception (REJECTED → HUMAN_REVIEW).
@@ -144,3 +146,97 @@ export function isTerminal(state) {
   }
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Action → to-state lookup used by transitionReturn().
+// An action listed as null means "audit-only" — the state does not change.
+// ---------------------------------------------------------------------------
+const ACTION_MAP = {
+  // Normal approvals / rejections
+  APPROVE:           (from) => {
+    // From NEEDS_INFO → skip straight to APPROVED via ELIGIBILITY_CHECK path allowed
+    if (from === STATES.NEEDS_INFO || from === STATES.VERIFYING) return STATES.APPROVED;
+    if (from === STATES.ELIGIBILITY_CHECK) return STATES.APPROVED;
+    return STATES.APPROVED;
+  },
+  REJECT:            () => STATES.REJECTED,
+  // Logistics progression
+  SCHEDULE_PICKUP:   () => STATES.PICKUP_SCHEDULED,
+  PICKUP_COMPLETE:   () => STATES.IN_TRANSIT,
+  RECEIVE:           () => STATES.RECEIVED,
+  INSPECT:           () => STATES.INSPECTION,
+  // Refund outcomes
+  REFUND_SUCCESS:    () => STATES.COMPLETED,
+  REFUND_FAIL:       () => STATES.REFUND_FAILED,
+  // Human escalation / appeal
+  ESCALATE:          () => STATES.HUMAN_REVIEW,
+  APPEAL:            () => STATES.HUMAN_REVIEW,
+  // Audit-only — no state change
+  REQUEST_EVIDENCE:  null,
+};
+
+/**
+ * Perform a state transition driven by a semantic action name.
+ *
+ * @param {Object}  params
+ * @param {Object}  params.returnDoc     - The current return document (must have a .status field)
+ * @param {string}  params.action        - Semantic action (see ACTION_MAP above)
+ * @param {string}  [params.toState]     - Explicit target state (overrides action mapping)
+ * @param {string}  params.actor         - Who is performing the action
+ * @param {Object}  [params.data]        - Extra payload stored in the audit event
+ * @param {string}  params.returnId      - Return case ID
+ * @param {string}  params.previousHash  - Hash of the previous audit event
+ * @returns {{ updatedDoc: Object, auditEvent: Object }}
+ */
+export function transitionReturn({ returnDoc, action, toState, actor, data = {}, returnId, previousHash }) {
+  const fromState = returnDoc.status;
+
+  // Determine target state
+  let nextState;
+  if (toState) {
+    nextState = toState;
+  } else {
+    const resolver = ACTION_MAP[action];
+    if (resolver === undefined) {
+      throw new Error(`transitionReturn: unknown action "${action}". Add it to ACTION_MAP.`);
+    }
+    if (resolver === null) {
+      // Audit-only action: state stays the same
+      nextState = fromState;
+    } else {
+      nextState = resolver(fromState);
+    }
+  }
+
+  // Validate (skip when state stays the same for audit-only events)
+  if (nextState !== fromState) {
+    assertTransition(fromState, nextState);
+  }
+
+  const auditEvent = createEvent({
+    returnId,
+    previousHash,
+    actor,
+    action,
+    data: { fromState, toState: nextState, ...data },
+  });
+
+  const updatedDoc = {
+    ...returnDoc,
+    status:          nextState,
+    last_updated_at: auditEvent.timestamp,
+    last_action:     action,
+    last_actor:      actor,
+  };
+
+  // Merge any extra data fields that callers commonly set on the doc
+  if (data.rma)             updatedDoc.rma_number      = data.rma;
+  if (data.resolution)      updatedDoc.resolution      = data.resolution;
+  if (data.slotId)          updatedDoc.pickup_slot_id  = data.slotId;
+  if (data.trackingNumber)  updatedDoc.tracking_number = data.trackingNumber;
+  if (data.refundId)        updatedDoc.refund_id        = data.refundId;
+
+  return { updatedDoc, auditEvent };
+}
+
+
