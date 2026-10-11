@@ -18,6 +18,7 @@
 
 import { listAlerts } from '../returns/store.js';
 import { stripUndefined } from '../utils/stripUndefined.js';
+import { verifyChain } from '../returns/audit.js';
 
 const DEFAULT_COUNTERS = {
   id: 'agent_counters',
@@ -177,6 +178,16 @@ function formatRunSummary(id, data = {}) {
   const escalated = auditEvents.some(e => e.action === 'ESCALATE_TO_HUMAN') || data.caseCard?.state === 'HUMAN_REVIEW';
   const blocked = auditEvents.some(e => e.action === 'PROMPT_INJECTION_DETECTED' || e.action === 'DAILY_CAP_EXCEEDED');
 
+  // Run verifyChain only when there are hash-chained events (events with a returnId field)
+  const chainableEvents = auditEvents.filter(e => e.hash && e.returnId);
+  let chainValid = null; // null = not applicable (no hash-chained events)
+  if (chainableEvents.length > 0) {
+    chainValid = verifyChain(chainableEvents).valid;
+  }
+
+  // directAnswer: model replied without calling any agent tools
+  const directAnswer = toolEvents.length === 0;
+
   return {
     conversationId: id,
     uid: data.uid || 'anonymous',
@@ -189,6 +200,8 @@ function formatRunSummary(id, data = {}) {
     toolNames: toolEvents.map(e => e.action),
     escalated,
     blocked,
+    directAnswer,
+    chainValid,
     status: escalated ? 'ESCALATED' : blocked ? 'BLOCKED' : data.caseCard?.state || 'COMPLETED',
     auditEvents,
     messages: data.messages || [],

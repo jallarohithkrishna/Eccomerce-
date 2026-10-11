@@ -162,7 +162,7 @@ export default function AdminAgentRuns() {
       </div>
 
       {/* ── Top Counters Section (Single Document Derived) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
         {/* Latency */}
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500 mb-2">
@@ -257,6 +257,22 @@ export default function AdminAgentRuns() {
             </div>
             <div className="text-xs text-slate-400 mt-1">
               {metrics.alertsOpen > 0 ? 'Pending staff review' : 'All SLA checks normal'}
+            </div>
+          </div>
+        </div>
+
+        {/* Direct Answers */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider">Direct Answers</span>
+            <MessageSquare className="h-5 w-5 text-slate-400" />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-slate-900">
+              {runs.filter(r => r.directAnswer).length}
+            </div>
+            <div className="text-xs text-slate-400 mt-1">
+              Turns with no tool calls
             </div>
           </div>
         </div>
@@ -501,15 +517,47 @@ export default function AdminAgentRuns() {
               {detailTab === 'trace' && (
                 <div className="space-y-4">
                   {/* Grounding and Safety Banner */}
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between text-xs text-emerald-800">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                      <span><strong>Grounding Verified:</strong> Numbers, dates, and RMA codes anchored directly to verified tool data.</span>
+                  {selectedRun.toolCallsCount === 0 ? (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between text-xs text-amber-800">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-amber-600" />
+                        <span><strong>No tools were called</strong> — the model answered directly from its training knowledge.</span>
+                      </div>
+                      <span className="font-mono bg-white px-2 py-0.5 rounded border border-amber-200 text-amber-700">
+                        0 tool events
+                      </span>
                     </div>
-                    <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-200 text-emerald-700">
-                      Hash-chained SHA-256
-                    </span>
-                  </div>
+                  ) : selectedRun.chainValid === true ? (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between text-xs text-emerald-800">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                        <span><strong>Grounding Verified:</strong> {selectedRun.toolCallsCount} tool event{selectedRun.toolCallsCount !== 1 ? 's' : ''} anchored to verified data.</span>
+                      </div>
+                      <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-200 text-emerald-700">
+                        {selectedRun.toolCallsCount} event{selectedRun.toolCallsCount !== 1 ? 's' : ''} · chain valid ✓
+                      </span>
+                    </div>
+                  ) : selectedRun.chainValid === false ? (
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center justify-between text-xs text-rose-800">
+                      <div className="flex items-center gap-2">
+                        <XCircle className="h-4 w-4 text-rose-600" />
+                        <span><strong>Chain Integrity Failed:</strong> One or more audit event hashes did not match — possible tampering.</span>
+                      </div>
+                      <span className="font-mono bg-white px-2 py-0.5 rounded border border-rose-200 text-rose-700">
+                        {selectedRun.toolCallsCount} event{selectedRun.toolCallsCount !== 1 ? 's' : ''} · chain broken ✗
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between text-xs text-slate-600">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-slate-400" />
+                        <span>{selectedRun.toolCallsCount} tool event{selectedRun.toolCallsCount !== 1 ? 's' : ''} recorded — no hash-chained return events in this run.</span>
+                      </div>
+                      <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-500">
+                        {selectedRun.toolCallsCount} event{selectedRun.toolCallsCount !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Audit Event Timeline */}
                   {selectedRun.auditEvents && selectedRun.auditEvents.length > 0 ? (
