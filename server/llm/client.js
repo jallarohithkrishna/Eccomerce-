@@ -33,7 +33,7 @@ export class LLMError extends Error {
 /**
  * Execute a single HTTP call to the completions endpoint.
  */
-async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, maxTokens, temperature, timeoutMs, fetchImpl }) {
+async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, toolChoice, maxTokens, temperature, timeoutMs, fetchImpl }) {
   const customFetch = fetchImpl || fetch;
   const body = {
     model,
@@ -44,7 +44,7 @@ async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, maxTok
 
   if (tools && tools.length > 0) {
     body.tools = tools;
-    body.tool_choice = 'auto';
+    body.tool_choice = toolChoice || 'auto';
   }
 
   const controller = new AbortController();
@@ -105,6 +105,7 @@ async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, maxTok
 export async function callLLM({
   messages,
   tools = [],
+  toolChoice,
   model,
   fallbackModel,
   maxTokens = 512,
@@ -139,6 +140,7 @@ export async function callLLM({
           model: currentModel,
           messages,
           tools,
+          toolChoice,
           maxTokens,
           temperature,
           timeoutMs: effectiveTimeout,
