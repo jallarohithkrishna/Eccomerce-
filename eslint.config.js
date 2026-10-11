@@ -31,7 +31,7 @@ export default [
       ],
       'no-unused-vars': 'warn',
       'no-empty': 'warn',
-      'no-undef': 'warn',
+      'no-undef': 'error',
       'no-irregular-whitespace': 'warn',
       'no-useless-assignment': 'warn',
     },
