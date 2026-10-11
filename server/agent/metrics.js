@@ -17,6 +17,7 @@
  */
 
 import { listAlerts } from '../returns/store.js';
+import { stripUndefined } from '../utils/stripUndefined.js';
 
 const DEFAULT_COUNTERS = {
   id: 'agent_counters',
@@ -101,7 +102,7 @@ export async function recordAgentRun({
   // Sync to Firestore if db provided
   if (db) {
     try {
-      await db.collection('system_metrics').doc('agent_counters').set(memoryCounters, { merge: true });
+      await db.collection('system_metrics').doc('agent_counters').set(stripUndefined(memoryCounters), { merge: true });
     } catch (err) {
       console.warn('Failed to sync agent metrics to Firestore:', err.message);
     }

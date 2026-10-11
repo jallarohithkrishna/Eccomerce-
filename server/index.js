@@ -140,6 +140,11 @@ try {
     initializeApp({ projectId });
   }
   db = getFirestore();
+  try {
+    db.settings({ ignoreUndefinedProperties: true });
+  } catch (settingsErr) {
+    // Settings already applied or mock db
+  }
 } catch (err) {
   console.warn('Firebase Admin initialized without direct service account, checking fallback:', err.message);
 }

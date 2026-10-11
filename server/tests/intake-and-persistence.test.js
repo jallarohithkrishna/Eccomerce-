@@ -23,6 +23,7 @@ import express from 'express';
 import { devAuthAllowed, verifyIdToken, requireRole } from '../middleware/auth.js';
 import { createReturnsRouter } from '../routes/returns.js';
 import * as returnStore from '../returns/store.js';
+import * as conversations from '../agent/conversations.js';
 
 // ─── Lightweight Mock Firestore for Persistence Verification ─────────────────
 
@@ -870,4 +871,60 @@ describe('3. Firestore Branch & Persistence Requirements', () => {
     assert.equal(eventsOf().get('000001').hash, storedFirst.hash, 'store must not rewrite an existing seq');
     assert.equal(eventsOf().size, 1, 'no extra event may be appended for a colliding seq');
   });
+
+  it('strips undefined values on conversation and return persistence without error', async () => {
+    const convId = 'conv_mock_undef_test';
+    const record = await conversations.saveConversation({
+      db: mockDb,
+      conversationId: convId,
+      uid: 'user_mock_1',
+      messages: [{ role: 'user', content: 'test undefined stripping' }],
+      caseCard: {
+        riskScore: undefined,
+        undefinedField: undefined,
+        state: 'HUMAN_REVIEW',
+      },
+      auditEvents: [{
+        seq: 1,
+        hash: 'hash_abc',
+        action: 'TEST_UNDEF',
+        timestamp: new Date().toISOString(),
+      }],
+    });
+
+    assert.ok(record);
+    const parentDoc = mockDb._store.agent_conversations.get(convId);
+    assert.ok(parentDoc, 'Parent doc must be saved in mock store');
+    assert.equal(parentDoc.undefinedField, undefined, 'Undefined properties must not exist on document');
+
+    const staffDoc = parentDoc._subcollections?.internal?.get('staff');
+    assert.ok(staffDoc, 'Staff internal subdoc must be saved');
+    assert.equal(staffDoc.caseCard_internal.riskScore, 0, 'riskScore must default to 0');
+    assert.deepEqual(staffDoc.caseCard_internal.riskFlags, []);
+
+    // Also test saveReturn with undefined fields
+    const retId = 'ret_mock_undef_test';
+    const retRecord = await returnStore.saveReturn({
+      db: mockDb,
+      returnRecord: {
+        id: retId,
+        orderId: 'ord_mock_1',
+        undefinedValue: undefined,
+        status: 'RECEIVED',
+      },
+      event: {
+        seq: 1,
+        hash: 'hash_ret_undef',
+        actor: 'agent',
+        action: 'TEST_RET_UNDEF',
+        data: { undef: undefined },
+      },
+    });
+
+    assert.ok(retRecord);
+    const savedRet = mockDb._store.returns.get(retId);
+    assert.ok(savedRet);
+    assert.equal(savedRet.undefinedValue, undefined);
+  });
 });
+

@@ -7,6 +7,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { GENESIS_HASH } from './audit.js';
 import { generateRma } from './rma.js';
+import { stripUndefined } from '../utils/stripUndefined.js';
 
 // In-memory mirrors
 const returnRecords = new Map();   // returnId -> ReturnRecord
@@ -59,7 +60,7 @@ export async function seedOrder({ db, order } = {}) {
 
   if (shouldSync(db)) {
     try {
-      await db.collection('orders').doc(order.id).set(record, { merge: true });
+      await db.collection('orders').doc(order.id).set(stripUndefined(record), { merge: true });
     } catch (err) {
       console.warn(`Firestore seedOrder error (${order.id}):`, err.message);
     }
@@ -151,7 +152,7 @@ export async function updateOrderStatus({ db, orderId, status, deliveredAt } = {
         // Use setOnce pattern: only write if the field is missing
         updateData.delivered_at = serverTimestamp || record.delivered_at;
       }
-      await db.collection('orders').doc(cleanId).set(updateData, { merge: true });
+      await db.collection('orders').doc(cleanId).set(stripUndefined(updateData), { merge: true });
     } catch (err) {
       console.warn(`Firestore updateOrderStatus error (${cleanId}):`, err.message);
     }
@@ -310,26 +311,29 @@ export async function saveReturn({ db, returnRecord, event }) {
   // Sync to Firestore returns collection and audit events
   if (shouldSync(db)) {
     try {
+      const cleanRecord = stripUndefined(record);
+      const cleanEvent = eventRecord ? stripUndefined(eventRecord) : null;
+
       if (typeof db.batch === 'function') {
         const batch = db.batch();
         const returnRef = db.collection('returns').doc(id);
-        batch.set(returnRef, record, { merge: true });
+        batch.set(returnRef, cleanRecord, { merge: true });
 
-        if (eventRecord) {
-          const seqStr = String(eventRecord.seq).padStart(6, '0');
+        if (cleanEvent) {
+          const seqStr = String(cleanEvent.seq).padStart(6, '0');
           const eventRef = returnRef.collection('events').doc(seqStr);
           // Create-only: an audit event is never updated once written.
-          if (typeof batch.create === 'function') batch.create(eventRef, eventRecord);
-          else batch.set(eventRef, eventRecord);
+          if (typeof batch.create === 'function') batch.create(eventRef, cleanEvent);
+          else batch.set(eventRef, cleanEvent);
         }
         await batch.commit();
       } else {
-        await db.collection('returns').doc(id).set(record, { merge: true });
-        if (eventRecord) {
-          const seqStr = String(eventRecord.seq).padStart(6, '0');
+        await db.collection('returns').doc(id).set(cleanRecord, { merge: true });
+        if (cleanEvent) {
+          const seqStr = String(cleanEvent.seq).padStart(6, '0');
           const eventRef = db.collection('returns').doc(id).collection('events').doc(seqStr);
-          if (typeof eventRef.create === 'function') await eventRef.create(eventRecord);
-          else await eventRef.set(eventRecord);
+          if (typeof eventRef.create === 'function') await eventRef.create(cleanEvent);
+          else await eventRef.set(cleanEvent);
         }
       }
     } catch (err) {

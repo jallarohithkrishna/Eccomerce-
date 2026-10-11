@@ -7,6 +7,8 @@
  * Fields: uid, messages (last 10 turns), caseCard, auditEvents, handledBy, createdAt, updatedAt
  */
 
+import { stripUndefined } from '../utils/stripUndefined.js';
+
 /** In-memory mirror for fast reads */
 const convStore = new Map();
 
@@ -24,38 +26,43 @@ const INTERNAL_FIELDS = ['auditEvents', 'promptInjectionDetected', 'ruleIds', 't
 function buildSafeDoc(record) {
   const safe = {};
   for (const [k, v] of Object.entries(record)) {
-    if (INTERNAL_FIELDS.includes(k)) continue;
+    if (INTERNAL_FIELDS.includes(k) || v === undefined) continue;
     safe[k] = v;
   }
   // Strip internal caseCard sub-fields (risk score, rule ids, etc.)
   if (safe.caseCard && typeof safe.caseCard === 'object') {
     const { riskScore, riskFlags, ruleIds, toolTraces, promptInjectionDetected, ...safeCard } = safe.caseCard;
     safe.caseCard = safeCard;
-    // Preserve _internal on staff doc, not on safe doc
   }
-  return safe;
+  return stripUndefined(safe);
 }
 
 /**
  * Build the internal-only portion for the staff subcollection.
+ * Guarantees riskScore, riskFlags, ruleIds, toolTraces, promptInjectionDetected have defined defaults.
  */
 function buildInternalDoc(record) {
   const internal = { updatedAt: record.updatedAt };
   for (const field of INTERNAL_FIELDS) {
-    if (field in record) internal[field] = record[field];
+    if (field in record && record[field] !== undefined) internal[field] = record[field];
   }
-  // Also store internal caseCard sub-fields
-  if (record.caseCard && typeof record.caseCard === 'object') {
-    const { riskScore, riskFlags, ruleIds, toolTraces, promptInjectionDetected } = record.caseCard;
-    internal.caseCard_internal = { riskScore, riskFlags, ruleIds, toolTraces, promptInjectionDetected };
-  }
-  return internal;
+  // Guarantee defined defaults for all internal caseCard sub-fields
+  const card = (record.caseCard && typeof record.caseCard === 'object') ? record.caseCard : {};
+  internal.caseCard_internal = {
+    riskScore: typeof card.riskScore === 'number' ? card.riskScore : 0,
+    riskFlags: Array.isArray(card.riskFlags) ? card.riskFlags : [],
+    ruleIds: Array.isArray(card.ruleIds) ? card.ruleIds : [],
+    toolTraces: Array.isArray(card.toolTraces) ? card.toolTraces : [],
+    promptInjectionDetected: Boolean(card.promptInjectionDetected),
+  };
+  return stripUndefined(internal);
 }
 
 /**
  * Save conversation snapshot to memory (and Firestore if db provided).
  * Writes safe fields to /agent_conversations/{id} (customer-readable)
  * and internal-only fields to /agent_conversations/{id}/internal/staff (staff-only).
+ * A failed conversation write retries once and never loses the in-memory audit trace.
  */
 export async function saveConversation({ db, conversationId, uid, messages, caseCard, auditEvents = [] }) {
   const now = new Date().toISOString();
@@ -79,7 +86,7 @@ export async function saveConversation({ db, conversationId, uid, messages, case
   convStore.set(conversationId, merged);
 
   if (db) {
-    try {
+    const writeToFirestore = async () => {
       const safeDoc = buildSafeDoc(merged);
       const internalDoc = buildInternalDoc(merged);
       // Write customer-safe document to root collection
@@ -87,8 +94,17 @@ export async function saveConversation({ db, conversationId, uid, messages, case
       // Write internal fields to staff-only subcollection
       await db.collection('agent_conversations').doc(conversationId)
         .collection('internal').doc('staff').set(internalDoc, { merge: true });
-    } catch (e) {
-      console.warn('Failed to persist conversation to Firestore:', e.message);
+    };
+
+    try {
+      await writeToFirestore();
+    } catch (err) {
+      console.warn(`Failed to persist conversation ${conversationId} to Firestore (retrying once):`, err.message);
+      try {
+        await writeToFirestore();
+      } catch (retryErr) {
+        console.error(`Failed to persist conversation ${conversationId} to Firestore after retry (in-memory audit trace preserved):`, retryErr.message);
+      }
     }
   }
   return merged;

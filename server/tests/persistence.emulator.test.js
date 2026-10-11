@@ -29,6 +29,7 @@ import {
   assertFails,
 } from '@firebase/rules-unit-testing';
 import * as returnStore from '../returns/store.js';
+import * as conversations from '../agent/conversations.js';
 import { createReturnsRouter } from '../routes/returns.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -84,6 +85,9 @@ describe('Persistence & Security Rules Emulator Integration Test', () => {
       initializeApp({ projectId: 'ps01-persistence-emulator-test' });
     }
     adminDb = getFirestore();
+    try {
+      adminDb.settings({ ignoreUndefinedProperties: true });
+    } catch {}
 
     const app = express();
     app.use(express.json());
@@ -186,4 +190,48 @@ describe('Persistence & Security Rules Emulator Integration Test', () => {
     await assertFails(aliceDb.collection('returns').doc('ret_unauthorized_create').set({ userId: ownerUid }));
     await assertFails(bobDb.collection('returns').doc(returnId).update({ status: 'COMPLETED' }));
   });
+
+  it('saves conversation with undefined fields on emulator and preserves audit trace', async () => {
+    const convId = 'conv_emulator_undef_test';
+    const uid = 'cust_emulator_undef';
+
+    // Conversation with undefined fields in caseCard and root
+    const record = await conversations.saveConversation({
+      db: adminDb,
+      conversationId: convId,
+      uid,
+      messages: [{ role: 'user', content: 'test undefined persistence on emulator' }],
+      caseCard: {
+        riskScore: undefined,
+        undefinedProp: undefined,
+        state: 'HUMAN_REVIEW',
+      },
+      auditEvents: [{
+        seq: 1,
+        hash: 'hash_emu_123',
+        action: 'TEST_EMULATOR_UNDEF',
+        timestamp: new Date().toISOString(),
+      }],
+    });
+
+    assert.ok(record);
+    assert.equal(record.conversationId, convId);
+
+    // Read directly from Admin Firestore to confirm stored without error
+    const snap = await adminDb.collection('agent_conversations').doc(convId).get();
+    assert.ok(snap.exists, 'Conversation doc must exist in Firestore');
+    const data = snap.data();
+    assert.equal(data.uid, uid);
+    assert.equal(data.undefinedProp, undefined);
+
+    // Staff internal doc must have riskScore set to 0 default
+    const internalSnap = await adminDb.collection('agent_conversations').doc(convId)
+      .collection('internal').doc('staff').get();
+    assert.ok(internalSnap.exists, 'Staff internal doc must exist');
+    const internalData = internalSnap.data();
+    assert.equal(internalData.caseCard_internal.riskScore, 0, 'riskScore must have default 0');
+    assert.deepEqual(internalData.caseCard_internal.riskFlags, []);
+    assert.equal(internalData.auditEvents.length, 1);
+  });
 });
+
