@@ -13,6 +13,7 @@ import {
   Upload, UserCheck, X, Loader2, FileCheck, Shield
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/api';
 
 // ─── Config ───────────────────────────────────────────────────────────────
 
@@ -266,14 +267,11 @@ function EvidenceUpload({ conversationId, userToken, onResult }) {
     formData.append('conversationId', conversationId);
 
     try {
-      const headers = {};
-      if (userToken) headers['Authorization'] = `Bearer ${userToken}`;
-      else headers['x-dev-uid'] = conversationId.split('_')[1] || 'dev';
-
-      const res = await fetch(`${SERVER}/agent/evidence`, {
+      // apiFetch with rawResponse:true to handle FormData (browser sets Content-Type automatically)
+      const res = await apiFetch(`${SERVER}/agent/evidence`, {
         method: 'POST',
-        headers,
         body: formData,
+        rawResponse: true,
       });
       const data = await res.json();
 
@@ -367,9 +365,9 @@ export default function AiReturnAssistant({ preSelectedOrder = null, onReturnCre
       setConversationId(convId);
 
       try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (user?.uid) headers['x-dev-uid'] = user.uid;
-        const res = await fetch(`${SERVER}/agent/conversations/${convId}`, { headers });
+        const res = await apiFetch(`${SERVER}/agent/conversations/${convId}`, {
+          rawResponse: true,
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.messages?.length > 0) {
@@ -449,16 +447,12 @@ export default function AiReturnAssistant({ preSelectedOrder = null, onReturnCre
     setIsTyping(true);
 
     try {
-      const headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-      };
-      if (user?.uid) headers['x-dev-uid'] = user.uid;
-
-      const res = await fetch(`${SERVER}/agent/chat`, {
+      // rawResponse:true to stream SSE tokens from the server
+      const res = await apiFetch(`${SERVER}/agent/chat`, {
         method:  'POST',
-        headers,
+        headers: { 'Accept': 'text/event-stream' },
         body:    JSON.stringify({ message: finalText, conversationId }),
+        rawResponse: true,
       });
 
       if (!res.ok) {
@@ -561,14 +555,13 @@ export default function AiReturnAssistant({ preSelectedOrder = null, onReturnCre
       });
       // Best-effort escalation call
       try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (user?.uid) headers['x-dev-uid'] = user.uid;
-        await fetch(`${SERVER}/agent/chat`, {
-          method: 'POST', headers,
+        await apiFetch(`${SERVER}/agent/chat`, {
+          method: 'POST',
           body: JSON.stringify({
             message: 'SYSTEM: escalate_to_human due to agent unavailability. Transcript: ' + text,
             conversationId,
           }),
+          rawResponse: true,
         });
       } catch { /* best effort */ }
     }
