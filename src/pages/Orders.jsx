@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Package, Clock, CheckCircle, RotateCcw, Truck, ShieldCheck, ChevronRight, Sparkles, QrCode } from 'lucide-react';

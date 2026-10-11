@@ -356,7 +356,7 @@ export async function toolCreateReturnRMA({
         orderId: order.id,
         productId: item.product_id || null,
         reason: reasonCode,
-        quantity: quantity,
+        quantity: returnQty,
         resolutionType: resolutionType || 'refund',
         meta: returnRecord
       })

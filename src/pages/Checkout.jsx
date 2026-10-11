@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { db } from '../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { apiFetch } from '../lib/api';
 import { CheckCircle, CreditCard, Truck, ShieldCheck, ArrowRight } from 'lucide-react';
 import { resolvePolicyForItem } from '../constants/returnPolicies';
