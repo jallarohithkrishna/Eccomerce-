@@ -50,6 +50,37 @@ describe('Security Rules Verification Suite', () => {
     assert.ok(rules.includes('allow read: if isStaff();') || rules.includes('allow read: if isStaff()'), 'Must allow staff read on alerts');
   });
 
+  it('SR03: agent_conversations internal subcollection is staff-only (no customer read)', () => {
+    const rules = fs.readFileSync(FIRESTORE_RULES_PATH, 'utf8');
+
+    // Must have agent_conversations match with internal subcollection
+    assert.ok(rules.includes("match /agent_conversations/{conversationId}"), 'Must have agent_conversations match');
+    assert.ok(rules.includes("match /internal/{doc}"), 'Must have internal subcollection match');
+
+    // Internal subcollection must only allow staff read
+    const internalBlock = rules.slice(
+      rules.indexOf("match /internal/{doc}"),
+      rules.indexOf("match /internal/{doc}") + 200
+    );
+    assert.ok(internalBlock.includes('allow read: if isStaff()'), 'internal subcollection must be staff-only read');
+    assert.ok(internalBlock.includes('allow write: if false'), 'internal subcollection must deny all writes');
+
+    // The parent agent_conversations doc allows customer to read only their own (uid check)
+    const convBlock = rules.slice(
+      rules.indexOf("match /agent_conversations/{conversationId}"),
+      rules.indexOf("match /internal/{doc}") + 250
+    );
+    assert.ok(
+      convBlock.includes("resource.data.uid == request.auth.uid"),
+      'Customer read must be gated by uid ownership on parent doc'
+    );
+    // Internal subcollection must NOT allow customer uid-based access
+    assert.ok(
+      !internalBlock.includes("request.auth.uid"),
+      'Internal subcollection must NOT be accessible by uid-based customer rule'
+    );
+  });
+
   it('verifies storage.rules syntax and upload constraints', () => {
     assert.ok(fs.existsSync(STORAGE_RULES_PATH), 'storage.rules must exist');
     const storageRules = fs.readFileSync(STORAGE_RULES_PATH, 'utf8');

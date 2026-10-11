@@ -11,7 +11,51 @@
 const convStore = new Map();
 
 /**
+ * INTERNAL FIELDS that must never be readable by the customer.
+ * These are stored in /agent_conversations/{id}/internal/staff
+ * and are only accessible with staff/admin role.
+ */
+const INTERNAL_FIELDS = ['auditEvents', 'promptInjectionDetected', 'ruleIds', 'toolTraces'];
+
+/**
+ * Build the customer-safe portion of the conversation document.
+ * Strips all internal-only fields and internal caseCard sub-fields.
+ */
+function buildSafeDoc(record) {
+  const safe = {};
+  for (const [k, v] of Object.entries(record)) {
+    if (INTERNAL_FIELDS.includes(k)) continue;
+    safe[k] = v;
+  }
+  // Strip internal caseCard sub-fields (risk score, rule ids, etc.)
+  if (safe.caseCard && typeof safe.caseCard === 'object') {
+    const { riskScore, riskFlags, ruleIds, toolTraces, promptInjectionDetected, ...safeCard } = safe.caseCard;
+    safe.caseCard = safeCard;
+    // Preserve _internal on staff doc, not on safe doc
+  }
+  return safe;
+}
+
+/**
+ * Build the internal-only portion for the staff subcollection.
+ */
+function buildInternalDoc(record) {
+  const internal = { updatedAt: record.updatedAt };
+  for (const field of INTERNAL_FIELDS) {
+    if (field in record) internal[field] = record[field];
+  }
+  // Also store internal caseCard sub-fields
+  if (record.caseCard && typeof record.caseCard === 'object') {
+    const { riskScore, riskFlags, ruleIds, toolTraces, promptInjectionDetected } = record.caseCard;
+    internal.caseCard_internal = { riskScore, riskFlags, ruleIds, toolTraces, promptInjectionDetected };
+  }
+  return internal;
+}
+
+/**
  * Save conversation snapshot to memory (and Firestore if db provided).
+ * Writes safe fields to /agent_conversations/{id} (customer-readable)
+ * and internal-only fields to /agent_conversations/{id}/internal/staff (staff-only).
  */
 export async function saveConversation({ db, conversationId, uid, messages, caseCard, auditEvents = [] }) {
   const now = new Date().toISOString();
@@ -36,7 +80,13 @@ export async function saveConversation({ db, conversationId, uid, messages, case
 
   if (db) {
     try {
-      await db.collection('agent_conversations').doc(conversationId).set(merged, { merge: true });
+      const safeDoc = buildSafeDoc(merged);
+      const internalDoc = buildInternalDoc(merged);
+      // Write customer-safe document to root collection
+      await db.collection('agent_conversations').doc(conversationId).set(safeDoc, { merge: true });
+      // Write internal fields to staff-only subcollection
+      await db.collection('agent_conversations').doc(conversationId)
+        .collection('internal').doc('staff').set(internalDoc, { merge: true });
     } catch (e) {
       console.warn('Failed to persist conversation to Firestore:', e.message);
     }

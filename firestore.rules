@@ -130,10 +130,20 @@ service cloud.firestore {
     }
 
     // ── AGENT CONVERSATIONS ───────────────────────────────────────────────────
-    // Multi-turn agent run transcripts and audit traces. Staff read only.
+    // Multi-turn agent run transcripts. Customer can read only their own safe
+    // parent document (messages, caseCard.state, uid, timestamps).
+    // Internal-only fields (auditEvents, riskScore, toolTraces, promptInjection
+    // detection, ruleIds) are stored in /internal/staff subcollection which is
+    // staff-only. Staff/admin can read both.
     match /agent_conversations/{conversationId} {
       allow read: if isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow write: if false;
+
+      // Internal staff-only subcollection: audit events, risk flags, tool traces
+      match /internal/{doc} {
+        allow read: if isStaff();
+        allow write: if false;
+      }
     }
 
     // ── PRODUCTS ─────────────────────────────────────────────────────────────
