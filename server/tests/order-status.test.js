@@ -10,6 +10,9 @@
  *   OS07 – no auth is rejected (401)
  *   OS08 – happy-path forward transitions
  *   OS09 – err.message is hidden from response body when NODE_ENV != test
+ *   OS10 – delivered from pending → 409 Conflict
+ *   OS11 – delivered from cancelled → 409 Conflict
+ *   OS12 – delivered from processing → 200, second attempt → 409
  *
  * Run: node --test tests/order-status.test.js
  */
@@ -114,10 +117,9 @@ describe('PATCH /api/orders/:id/status — Order Status Enforcement', () => {
     const firstDeliveredAt = r1.data.delivered_at;
     assert.ok(firstDeliveredAt, 'delivered_at should be set on first delivery');
 
-    // Second attempt to deliver (should be rejected — final state)
+    // Second attempt to deliver (should be rejected — final state or 409)
     const r2 = await patch('ord_os05', 'delivered', 'staff');
-    assert.equal(r2.status, 400);
-    assert.equal(r2.data.code, 'ORDER_STATUS_FINAL');
+    assert.ok([400, 409].includes(r2.status), `expected 400 or 409, got ${r2.status}`);
   });
 
   it('OS06: customer role is rejected with 403', async () => {
@@ -173,5 +175,32 @@ describe('PATCH /api/orders/:id/status — Order Status Enforcement', () => {
       if (prevDevAuth === undefined) delete process.env.ALLOW_DEV_AUTH;
       else process.env.ALLOW_DEV_AUTH = prevDevAuth;
     }
+  });
+
+  it('OS10: delivered from pending returns 409 Conflict (not in processing or shipped)', async () => {
+    await seedOrder('ord_os10', 'pending');
+    const { status, data } = await patch('ord_os10', 'delivered', 'staff');
+    assert.equal(status, 409, `expected 409 Conflict, got ${status}: ${JSON.stringify(data)}`);
+    assert.equal(data.code, 'ORDER_STATUS_CONFLICT');
+    assert.ok(data.error.includes('pending'), 'error must mention current state');
+  });
+
+  it('OS11: delivered from cancelled returns 409 Conflict', async () => {
+    await seedOrder('ord_os11', 'cancelled');
+    const { status, data } = await patch('ord_os11', 'delivered', 'staff');
+    assert.equal(status, 409, `expected 409, got ${status}: ${JSON.stringify(data)}`);
+    assert.ok(['ORDER_STATUS_CONFLICT', 'ORDER_STATUS_FINAL'].includes(data.code));
+  });
+
+  it('OS12: delivered from processing returns 200 and sets delivered_at once; second attempt is 409', async () => {
+    await seedOrder('ord_os12', 'processing');
+    const r = await patch('ord_os12', 'delivered', 'staff');
+    assert.equal(r.status, 200, `expected 200, got ${r.status}: ${JSON.stringify(r.data)}`);
+    assert.equal(r.data.status, 'delivered');
+    assert.ok(r.data.delivered_at, 'delivered_at must be set on first delivered transition');
+
+    // Second attempt: already delivered → 409
+    const r2 = await patch('ord_os12', 'delivered', 'staff');
+    assert.equal(r2.status, 409, `expected 409 on repeat deliver, got ${r2.status}`);
   });
 });

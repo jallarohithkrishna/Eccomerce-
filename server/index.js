@@ -744,12 +744,44 @@ app.patch('/api/orders/:id/status', authMiddleware, async (req, res) => {
   const { status } = req.body || {};
   if (!status || typeof status !== 'string') return res.status(400).json({ error: 'Status is required' });
 
+  const normalStatus = status.toLowerCase();
+
+  // ── DELIVER ROUTE GUARD ────────────────────────────────────────────────────
+  // 'delivered' may only be set from 'processing' or 'shipped'.
+  // Any other origin state (pending, delivered, cancelled) → 409 Conflict.
+  if (normalStatus === 'delivered') {
+    let currentOrder = null;
+    try {
+      currentOrder = await returnStore.getOrder({ db, orderId });
+    } catch (_) { /* order may not exist yet — let updateOrderStatus handle it */ }
+
+    if (currentOrder) {
+      const cs = String(currentOrder.status || '').toLowerCase();
+      if (cs !== 'processing' && cs !== 'shipped') {
+        return res.status(409).json({
+          error: `Cannot mark order as delivered from state '${currentOrder.status}'. Expected processing or shipped.`,
+          code: 'ORDER_STATUS_CONFLICT',
+          currentStatus: currentOrder.status,
+        });
+      }
+      // delivered_at is set only if not already present
+      if (currentOrder.delivered_at) {
+        return res.status(409).json({
+          error: 'Order is already delivered. delivered_at is immutable.',
+          code: 'ORDER_STATUS_FINAL',
+          currentStatus: currentOrder.status,
+        });
+      }
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   try {
     const updated = await returnStore.updateOrderStatus({ db, orderId, status });
     res.json({
       success: true,
       orderId,
-      status: updated ? updated.status : status.toLowerCase(),
+      status: updated ? updated.status : normalStatus,
       delivered_at: updated ? updated.delivered_at || null : null,
     });
   } catch (err) {
