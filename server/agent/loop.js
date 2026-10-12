@@ -209,10 +209,27 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
         temperature: 0,
       });
     } catch (llmErr) {
-      // Scripted fallback on LLM failure: escalate with transcript and notify customer
-      await _doEscalate({ uid, conversationId, db, reason: `LLM error: ${llmErr.message}`, messages, auditEvents });
-      finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
-      break;
+      // If the provider rejected tool_choice: "required", retry once with "auto"
+      if (toolChoice === 'required') {
+        try {
+          llmResult = await llmCall({
+            messages,
+            tools:       TOOL_DEFINITIONS,
+            toolChoice:  'auto',
+            maxTokens:   512,
+            temperature: 0,
+          });
+        } catch (retryErr) {
+          await _doEscalate({ uid, conversationId, db, reason: `LLM error: ${retryErr.message}`, messages, auditEvents });
+          finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
+          break;
+        }
+      } else {
+        // Scripted fallback on LLM failure: escalate with transcript and notify customer
+        await _doEscalate({ uid, conversationId, db, reason: `LLM error: ${llmErr.message}`, messages, auditEvents });
+        finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
+        break;
+      }
     }
 
     const { message, finish_reason } = llmResult;

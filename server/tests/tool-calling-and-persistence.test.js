@@ -83,6 +83,27 @@ describe('TC03 first-turn toolChoice required', async () => {
     assert.equal(llm.received[0].toolChoice, 'required', 'first call must be required');
     if (llm.received.length > 1) assert.equal(llm.received[1].toolChoice, 'auto', 'second must be auto');
   });
+
+  it('retries with auto if provider rejects required', async () => {
+    const u = uid(), c = cid();
+    let callCount = 0;
+    const receivedChoices = [];
+    const llm = async (params) => {
+      callCount++;
+      receivedChoices.push(params.toolChoice);
+      if (params.toolChoice === 'required') {
+        throw new Error('Provider does not support tool_choice=required');
+      }
+      return {
+        message: { content: 'I found your order without required tool_choice.' },
+        finish_reason: 'stop',
+      };
+    };
+    const res = await runLoop({ userMessage: 'I want to return something', conversationId: c, uid: u, db: null, llmOverride: llm });
+    assert.equal(receivedChoices[0], 'required', 'first attempted required');
+    assert.equal(receivedChoices[1], 'auto', 'retried with auto');
+    assert.ok(res.reply.includes('found your order'), 'succeeded on retry with auto');
+  });
 });
 
 describe('TC04 undefined fields stripped', async () => {
