@@ -154,6 +154,7 @@ async function runSmoke() {
     process.exit(1);
   }
   console.log(`✓ Server LLM configured: model=${health.model}, toolCallingProbe=${health.toolCallingProbe}\n`);
+  const initialServerCalls = health.modelCalls || 0;
 
   // 1. Authenticate as Customer A
   console.log('🔑 Signing in as customera@example.com on Auth emulator...');
@@ -368,19 +369,33 @@ async function runSmoke() {
     });
   }
 
+  // Query final health for server model calls count
+  let finalServerCalls = initialServerCalls;
+  try {
+    const endHealthRes = await fetch(`${SERVER_URL}/agent/health`);
+    if (endHealthRes.ok) {
+      const endHealth = await endHealthRes.json();
+      finalServerCalls = endHealth.modelCalls || 0;
+    }
+  } catch { /* best effort */ }
+
+  const serverCallsUsed = Math.max(0, finalServerCalls - initialServerCalls);
+  const isReal = serverCallsUsed > 0;
+  const modeLabel = isReal ? 'Real' : 'Fallback-only';
+
   // Write server/evals/live-report.md
   console.log('\n───────────────────────────────────────────────────────────────────────────────');
   console.log('Writing live evaluation report to server/evals/live-report.md...');
   const dateStr = new Date().toISOString();
-  const modelId = process.env.LLM_MODEL || 'poolside/laguna-s-2.1:free';
+  const modelId = health.model || process.env.LLM_MODEL || 'poolside/laguna-s-2.1:free';
 
   const reportMd = `# Live Agent Smoke Test Report
 
 - **Date:** ${dateStr}
-- **Target Model:** \`${modelId}\`
-- **Execution Mode:** Real Model (Headless Live Smoke)
-- **Total Calls Used:** ${totalModelCalls} / ${SMOKE_MAX_CALLS}
-- **Status:** ${results.every(r => r.allPassed) ? '🟢 ALL SCENARIOS PASSED' : '🟡 COMPLETED WITH SCENARIO WARNINGS'}
+- **Model:** \`${modelId}\`
+- **Mode:** ${modeLabel}
+- **Calls Used:** ${serverCallsUsed}
+- **Status:** ${results.every(r => r.allPassed) && isReal ? '🟢 ALL SCENARIOS PASSED' : '🔴 FAILED'}
 
 ## Scenarios & Results
 
@@ -413,7 +428,8 @@ ${results.map(r => {
     console.log(`  ${r.allPassed ? '🟢 PASS' : '🔴 FAIL'}: ${r.scenario} (${r.turns} turns)`);
   }
   console.log('───────────────────────────────────────────────────────────────────────────────');
-  console.log(`Total Model Calls: ${totalModelCalls} / ${SMOKE_MAX_CALLS}`);
+  console.log(`Mode:               ${modeLabel}`);
+  console.log(`Server Model Calls: ${serverCallsUsed}`);
   console.log('═══════════════════════════════════════════════════════════════════════════════\n');
 }
 
