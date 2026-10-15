@@ -111,6 +111,13 @@ function sanitizeTranscript(data) {
   );
 }
 
+// Helper: Check if an audit event is a scripted fallback escalate_to_human
+function isScriptedFallback(event) {
+  const isEscalate = (event.action || '').toUpperCase() === 'ESCALATE_TO_HUMAN';
+  const reason = event.data?.reason || event.data?.arguments?.reason || '';
+  return isEscalate && typeof reason === 'string' && reason.startsWith('LLM error');
+}
+
 // ─── Main Smoke Runner ───────────────────────────────────────────────────────
 
 async function runSmoke() {
@@ -281,20 +288,33 @@ async function runSmoke() {
     const auditEvents = convData?.auditEvents || internalData?.auditEvents || [];
     console.log(`Recorded Audit Events: ${auditEvents.length}`);
 
-    // Print every tool call
+    // Filter tool calls — exclude scripted fallback escalate_to_human
     const toolEvents = auditEvents.filter(e => e.actor === 'agent');
-    console.log(`\nAgent Tool Invocations (${toolEvents.length}):`);
+    const realToolEvents = toolEvents.filter(e => !isScriptedFallback(e));
+    const fallbackEvents = toolEvents.filter(e => isScriptedFallback(e));
+
+    console.log(`\nAgent Tool Invocations (${realToolEvents.length} real, ${fallbackEvents.length} fallback):`);
     for (const te of toolEvents) {
-      console.log(`  • [${te.action}] args: ${JSON.stringify(te.data?.arguments || te.data || {})}`);
+      if (isScriptedFallback(te)) {
+        console.log(`  • [${te.action}] [FALLBACK USED] reason: ${te.data?.reason || ''}`);
+      } else {
+        console.log(`  • [${te.action}] args: ${JSON.stringify(te.data?.arguments || te.data || {})}`);
+      }
     }
 
     // Run verification checks
     console.log('\n--- Verification Checks ---');
     const checks = {};
 
-    // 1. Tools were called
-    checks.toolsWereCalled = toolEvents.length > 0;
-    console.log(`  ${checks.toolsWereCalled ? 'PASS' : 'FAIL'}: Tools were called (${toolEvents.length} calls)`);
+    // 1. Tools were called (excluding scripted fallbacks)
+    checks.toolsWereCalled = realToolEvents.length > 0;
+    if (realToolEvents.length > 0) {
+      console.log(`  PASS: Tools were called (${realToolEvents.length} calls)`);
+    } else if (fallbackEvents.length > 0) {
+      console.log(`  FAIL: Tools were called (0 calls) — FALLBACK USED`);
+    } else {
+      console.log(`  FAIL: Tools were called (0 calls)`);
+    }
 
     // 2. list_my_orders was called on turn 1 without asking for an order ID
     const firstTurnInputLower = sc.initialMessage.toLowerCase();
