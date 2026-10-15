@@ -1,6 +1,5 @@
 import { getCachedProducts, ensureProductsLoaded } from './productCache';
-
-const SERVER_URL = import.meta.env.VITE_AI_SERVER_URL || 'http://localhost:5000';
+import { SERVER_URL } from './api';
 
 /**
  * Fallback client-side smart semantic & keyword filter if server is unavailable

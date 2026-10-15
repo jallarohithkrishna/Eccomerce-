@@ -13,11 +13,10 @@ import {
   Upload, UserCheck, X, Loader2, FileCheck, Shield
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/api';
+import { apiFetch, SERVER_URL as SERVER } from '../lib/api';
 
 // ─── Config ───────────────────────────────────────────────────────────────
 
-const SERVER = import.meta.env.VITE_AI_SERVER_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
 const STORAGE_KEY_PREFIX = 'agent_conv_id_';
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 

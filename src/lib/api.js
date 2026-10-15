@@ -1,6 +1,22 @@
 import { auth } from './firebase';
 
-const SERVER_URL = import.meta.env.VITE_AI_SERVER_URL || 'http://localhost:5000';
+/**
+ * Resolves the backend AI server URL.
+ * In development, defaults to http://localhost:5000 if unset.
+ * In a production build, throws a clear error if unset.
+ */
+function resolveServerUrl() {
+  const configured = import.meta.env.VITE_AI_SERVER_URL;
+  if (configured) {
+    return configured.replace(/\/+$/, '');
+  }
+  if (import.meta.env.DEV) {
+    return 'http://localhost:5000';
+  }
+  throw new Error('VITE_AI_SERVER_URL environment variable is required in production build.');
+}
+
+export const SERVER_URL = resolveServerUrl();
 
 /**
  * Universal authenticated API fetch helper

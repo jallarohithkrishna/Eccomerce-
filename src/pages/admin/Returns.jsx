@@ -14,7 +14,7 @@ import {
 } from '../../constants/returnStatuses';
 import { toolAdvanceReturnStatus } from '../../lib/returnAgent';
 
-const SERVER = import.meta.env.VITE_AI_SERVER_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+import { SERVER_URL as SERVER } from '../../lib/api';
 
 export default function AdminReturns() {
   const PAGE_SIZE = 25;
