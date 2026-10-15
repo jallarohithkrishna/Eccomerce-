@@ -10,7 +10,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
-import { runLoop }          from './agent/loop.js';
+import { runLoop, probeToolCalling } from './agent/loop.js';
+import { getModelCallCount } from './llm/client.js';
 import { verifyIdToken }    from './middleware/auth.js';
 import { rateLimit }        from './middleware/rateLimit.js';
 import * as conversations   from './agent/conversations.js';
@@ -31,15 +32,6 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config(); // Load server/.env if present
 
-// In local development, default to Firebase Emulators unless in production or explicit credentials
-if (process.env.NODE_ENV !== 'production' && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  if (!process.env.FIRESTORE_EMULATOR_HOST) {
-    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
-  }
-  if (!process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-    process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099';
-  }
-}
 
 const app = express();
 
@@ -432,6 +424,26 @@ Answer the user directly and reference the relevant products.`;
 const upload = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 5 * 1024 * 1024 },
+});
+
+// ─── GET /agent/health ────────────────────────────────────────────────────────
+app.get('/agent/health', async (req, res) => {
+  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';
+  const model = process.env.LLM_MODEL || '';
+  const llmConfigured = Boolean(apiKey && model);
+
+  let toolCallingProbe = false;
+  if (llmConfigured) {
+    const force = req.query.probe === 'true';
+    toolCallingProbe = await probeToolCalling(force);
+  }
+
+  res.json({
+    llmConfigured,
+    model: model || null,
+    toolCallingProbe,
+    modelCalls: getModelCallCount(),
+  });
 });
 
 // ─── POST /agent/chat ────────────────────────────────────────────────────────

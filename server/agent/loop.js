@@ -384,3 +384,34 @@ async function _doEscalate({ uid, conversationId, db, reason, messages, auditEve
     auditEvents.push(ev);
   } catch { /* best-effort */ }
 }
+
+let _probeCache = null;
+
+/**
+ * Probe whether the configured LLM model supports function/tool calling.
+ * Caches the result to avoid consuming quota on repeated checks.
+ */
+export async function probeToolCalling(force = false) {
+  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
+  const model = process.env.LLM_MODEL;
+  if (!apiKey || !model) return false;
+  if (_probeCache !== null && !force) return _probeCache;
+
+  try {
+    const res = await callLLM({
+      messages: [
+        { role: 'user', content: 'What is the status of my order TEST-PROBE? Please check the order details.' },
+      ],
+      tools: TOOL_DEFINITIONS,
+      maxTokens: 128,
+      temperature: 0,
+      timeoutMs: 8000,
+    });
+    const hasToolCalls = Array.isArray(res?.message?.tool_calls) && res.message.tool_calls.length > 0;
+    _probeCache = hasToolCalls;
+    return hasToolCalls;
+  } catch {
+    _probeCache = false;
+    return false;
+  }
+}

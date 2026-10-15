@@ -30,6 +30,16 @@ export class LLMError extends Error {
   }
 }
 
+let _modelCallCount = 0;
+
+export function getModelCallCount() {
+  return _modelCallCount;
+}
+
+export function resetModelCallCount() {
+  _modelCallCount = 0;
+}
+
 /**
  * Execute a single HTTP call to the completions endpoint.
  */
@@ -78,6 +88,8 @@ async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, toolCh
   const json = await response.json();
   const choice = json.choices?.[0];
   if (!choice) throw new LLMError(`Empty response from LLM model ${model}`, 'EMPTY_RESPONSE');
+
+  _modelCallCount++;
 
   return {
     message: choice.message,

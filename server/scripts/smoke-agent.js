@@ -127,6 +127,27 @@ async function runSmoke() {
     fs.mkdirSync(LIVE_DIR, { recursive: true });
   }
 
+  // 0. Pre-flight: verify agent health and LLM configuration
+  console.log(`📡 Checking agent health at ${SERVER_URL}/agent/health...`);
+  let health;
+  try {
+    const hRes = await fetch(`${SERVER_URL}/agent/health`);
+    if (!hRes.ok) {
+      throw new Error(`Health check returned HTTP ${hRes.status}`);
+    }
+    health = await hRes.json();
+  } catch (err) {
+    console.error(`❌ Failed to connect to server at ${SERVER_URL}: ${err.message}`);
+    console.error('server has no LLM key - start it with the key in your own terminal');
+    process.exit(1);
+  }
+
+  if (!health.llmConfigured) {
+    console.error('❌ server has no LLM key - start it with the key in your own terminal');
+    process.exit(1);
+  }
+  console.log(`✓ Server LLM configured: model=${health.model}, toolCallingProbe=${health.toolCallingProbe}\n`);
+
   // 1. Authenticate as Customer A
   console.log('🔑 Signing in as customera@example.com on Auth emulator...');
   const { idToken, localId } = await signInCustomerA();
