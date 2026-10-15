@@ -30,9 +30,8 @@ export const db = initializeFirestore(app, {
 });
 export const storage = getStorage(app);
 
-// Connect to Firebase Local Emulators when VITE_USE_EMULATOR is enabled or in development mode
-const isEmulatorEnabled = import.meta.env.VITE_USE_EMULATOR === 'true' || import.meta.env.VITE_USE_EMULATOR === true || (import.meta.env.DEV && import.meta.env.VITE_USE_EMULATOR !== 'false');
-if (isEmulatorEnabled) {
+// Connect to Firebase Local Emulators only when in development AND explicitly enabled
+if (import.meta.env.DEV && import.meta.env.VITE_USE_EMULATOR === 'true') {
   try {
     connectFirestoreEmulator(db, 'localhost', 8080);
     connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
