@@ -295,31 +295,66 @@ To ensure deterministic testing and zero cloud external billing during demonstra
 
 ---
 
-## Demo Hosting Plan
+## Local Demo
 
-### Infrastructure Constraints
-- The **Firebase Free (Spark) Plan** provides Firestore and Firebase Authentication at no cost, but does not support Cloud Functions (Node.js runtime) or Google Cloud Storage billing.
-- Therefore, the **Express Orchestrator** and **Vite SPA** run locally, connecting either to the local Firebase Emulator Suite or directly to your Firebase Spark project.
+> **IMPORTANT**: The live demo runs exclusively on **`http://localhost:5173`** against the local emulator suite and local backend server. The old `*.web.app` deployment is an outdated cloud hosting build and is **NOT** the demo environment.
 
-### Hosting Commands
+### 4-Terminal Startup Workflow
+
+#### Terminal 1: Firebase Emulators
+Start the local Firebase Emulator Suite (Authentication, Firestore, Storage):
 ```bash
-# 1. Start Firebase Emulators
 firebase emulators:start --only auth,firestore,storage
+```
+* Emulators listen on:
+  * Authentication: `127.0.0.1:9099`
+  * Firestore: `127.0.0.1:8080`
+  * Storage: `127.0.0.1:9199`
+  * Emulator UI: `http://127.0.0.1:4000`
 
-# 2. Seed Demo Data
+#### Terminal 2: Seed Demo Data
+Populate the emulator with realistic products, 50 pre-seeded customer orders, and role accounts:
+```bash
 node server/scripts/seed.js
+```
+* **Demo Login Credentials** (all password: `Password123!`):
+  * Customer A: `customera@example.com` (Orders: In-window shirt, Expired jacket, Luxury watch)
+  * Customer B: `customerb@example.com` (Orders: Electronics, Grocery)
+  * Staff: `staff@example.com` (Staff inbox & appeals)
+  * Warehouse: `warehouse@example.com` (Intake verification)
+  * Admin: `admin@example.com` (Full telemetry & config)
 
-# 3. Start Backend Orchestrator
-npm --prefix server start
+#### Terminal 3: Backend Server (Port 5000)
+Set emulator hosts and real LLM credentials, then start the Express server:
+```powershell
+cd server
+$env:FIRESTORE_EMULATOR_HOST = "127.0.0.1:8080"
+$env:FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099"
+$env:LLM_BASE_URL = "https://openrouter.ai/api/v1"
+$env:LLM_MODEL = "poolside/laguna-s-2.1:free"
+$s = Read-Host "OpenRouter key" -AsSecureString
+$env:LLM_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
+npm start
+```
+* Server listens on: `http://localhost:5000`
 
-# 4. Start Frontend
+#### Terminal 4: Frontend Development Server (Port 5173)
+Start Vite with local emulator wiring enabled:
+```bash
+# Ensure .env contains:
+# VITE_USE_EMULATOR=true
+# VITE_AI_SERVER_URL=http://localhost:5000
 npm run dev
 ```
-In your frontend `.env`, configure:
-```env
-VITE_SERVER_URL=http://localhost:3001
-VITE_USE_EMULATOR=true
-```
+* Open in browser: **`http://localhost:5173`**
+
+### Demo Exploration URLs
+- **Storefront & Catalog**: `http://localhost:5173/`
+- **Customer Orders**: `http://localhost:5173/orders` (Sign in as `customera@example.com`)
+- **Returns Assistant**: Open chat widget on `http://localhost:5173/returns` or `/orders`
+- **Staff Agent Runs & Trace**: `http://localhost:5173/admin/agent-runs` (Sign in as `staff@example.com`)
+- **Admin Returns Queue**: `http://localhost:5173/admin/returns`
+- **Emulator UI Inspector**: `http://127.0.0.1:4000/`
 
 ---
 
