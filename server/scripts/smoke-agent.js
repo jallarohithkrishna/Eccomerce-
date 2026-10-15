@@ -332,16 +332,19 @@ async function runSmoke() {
     console.log(`  ${checks.eligibilityBeforeCreate ? 'PASS' : 'FAIL'}: check_eligibility executed before return creation`);
 
     // 4. Audit chain validity
+    const eventCount = auditEvents.length;
     const chainResult = verifyChain(auditEvents);
-    checks.chainValid = chainResult.valid === true;
-    console.log(`  ${checks.chainValid ? 'PASS' : 'FAIL'}: Audit hash chain cryptographically verified`);
+    checks.chainValid = chainResult.valid === true && eventCount >= 2;
+    console.log(`  ${checks.chainValid ? 'PASS' : 'FAIL'}: Audit hash chain cryptographically verified (${eventCount} events, required >= 2)`);
 
     // Scenario specific checks
     if (sc.id === 'scenario_a') {
       const isApproved = finalCard?.state === 'APPROVED' || finalCard?.decision === 'APPROVED' || (convData?.caseCard?.state === 'APPROVED');
-      const hasRefund = (finalCard?.refund_amount !== undefined && finalCard?.refund_amount > 0) || (convData?.caseCard?.refund_amount > 0);
+      const refundVal = finalCard?.refund_amount ?? convData?.caseCard?.refund_amount;
+      const hasRefund = refundVal !== undefined && refundVal !== null && Number(refundVal) > 0;
       checks.approvedWithPolicyRefund = isApproved && hasRefund;
-      console.log(`  ${checks.approvedWithPolicyRefund ? 'PASS' : 'FAIL'}: Shirt return approved with policy engine refund amount (₹${finalCard?.refund_amount || convData?.caseCard?.refund_amount})`);
+      const refundDisplay = refundVal !== undefined && refundVal !== null ? `₹${refundVal}` : 'N/A';
+      console.log(`  ${checks.approvedWithPolicyRefund ? 'PASS' : 'FAIL'}: Shirt return approved with policy engine refund amount (${refundDisplay})`);
     } else if (sc.id === 'scenario_b') {
       const isDenied = finalCard?.state === 'DENIED' || finalCard?.state === 'REJECTED' || finalCard?.decision === 'DENIED' || (convData?.caseCard?.state === 'DENIED');
       checks.expiredDenied = isDenied;

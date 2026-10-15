@@ -113,12 +113,13 @@ export function resetAskRetry(conversationId) {
 /**
  * Set the returnId, current state, and optional rmaCode.
  */
-export function setReturn(conversationId, returnId, state, rmaCode = null) {
+export function setReturn(conversationId, returnId, state, rmaCode = null, refundAmount = null) {
   const s = store.get(conversationId);
   if (!s) throw new Error(`Session ${conversationId} not found`);
   s.returnId     = returnId;
   s.currentState = state;
   if (rmaCode) s.rmaCode = rmaCode;
+  if (refundAmount !== null) s.refundAmount = refundAmount;
   s.updatedAt    = Date.now();
 }
 
@@ -144,6 +145,7 @@ export function snapshot(conversationId) {
     returnId:        s.returnId,
     rmaCode:         s.rmaCode || null,
     currentState:    s.currentState,
+    refundAmount:    s.refundAmount || s.lastEligibility?.refund_amount || null,
     lastEligibility: s.lastEligibility || null,
     createdAt:       s.createdAt,
     updatedAt:       s.updatedAt,

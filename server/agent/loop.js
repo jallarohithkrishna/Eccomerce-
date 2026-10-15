@@ -367,6 +367,7 @@ function buildCaseCard(conversationId) {
                s?.currentState === 'PICKUP_SCHEDULED' ? 'Keep item packed for courier collection' :
                s?.currentState === 'HUMAN_REVIEW' || elig?.requiresHumanReview ? 'A specialist is reviewing your case' :
                s?.currentState === 'REJECTED' || elig?.eligible === false ? 'You may file an appeal' : null,
+    refund_amount: s?.refundAmount || elig?.refund_amount || null,
   };
 }
 

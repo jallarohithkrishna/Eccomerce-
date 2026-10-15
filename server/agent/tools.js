@@ -364,6 +364,8 @@ async function checkEligibility({ order_id, product_id, quantity, reason, uid, c
   });
 
   // Store in session so create_return can verify
+  result.refund_amount = itemPrice * (quantity || 1);
+  result.refundAmount = result.refund_amount;
   session.storeEligibility(conversationId, order_id, product_id, quantity || 1, result);
 
   // Check exception matrix
@@ -385,6 +387,7 @@ async function checkEligibility({ order_id, product_id, quantity, reason, uid, c
     window_days:          result.windowDays,
     exception_action:     exception.action,
     exception_code:       exception.code,
+    refund_amount:        result.refund_amount,
   });
 }
 
@@ -422,6 +425,7 @@ async function createReturn({ order_id, product_id, quantity, reason, resolution
   const returnId = `ret_${Date.now().toString(36)}`;
 
   // Persist to Firestore (skip in test mode)
+  const refundAmount = cached.refund_amount || 0;
   if (db) {
     await db.collection('returns').doc(returnId).set({
       return_id:   returnId,
@@ -431,6 +435,7 @@ async function createReturn({ order_id, product_id, quantity, reason, resolution
       quantity,
       reason,
       resolution,
+      refund_amount: refundAmount,
       status:      STATES.APPROVED,
       user_id:     uid,
       created_at:  new Date().toISOString(),
@@ -440,13 +445,14 @@ async function createReturn({ order_id, product_id, quantity, reason, resolution
     });
   }
 
-  session.setReturn(conversationId, returnId, STATES.APPROVED, rmaCode);
+  session.setReturn(conversationId, returnId, STATES.APPROVED, rmaCode, refundAmount);
   session.resetAskRetry(conversationId);
 
   return ok({
     return_id:  returnId,
     rma_code:   rmaCode,
     status:     STATES.APPROVED,
+    refund_amount: refundAmount,
     resolution,
     message:    `Return approved. RMA code: ${rmaCode}. Please keep this for your reference.`,
   });
