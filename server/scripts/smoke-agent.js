@@ -363,11 +363,14 @@ async function runSmoke() {
     fs.writeFileSync(transPath, JSON.stringify(sanitizeTranscript(transcript), null, 2), 'utf8');
     console.log(`\n💾 Saved transcript to ${transPath}`);
 
+    const isFallbackOnly = fallbackEvents.length > 0 && realToolEvents.length === 0;
+
     results.push({
       scenario: sc.name,
       turns: turnsRun,
       checks,
       caseCard: finalCard,
+      isFallbackOnly,
       allPassed: Object.values(checks).every(Boolean),
     });
   }
@@ -434,6 +437,17 @@ ${results.map(r => {
   console.log(`Mode:               ${modeLabel}`);
   console.log(`Server Model Calls: ${serverCallsUsed}`);
   console.log('═══════════════════════════════════════════════════════════════════════════════\n');
+
+  // If every turn was a fallback, exit with code 2
+  const allTurnsWereFallback = results.length > 0 && results.every(r => r.isFallbackOnly);
+  if (allTurnsWereFallback || (serverCallsUsed === 0 && results.every(r => !r.checks.toolsWereCalled))) {
+    console.error('\nNo real model response');
+    process.exit(2);
+  }
+
+  if (!results.every(r => r.allPassed)) {
+    process.exit(1);
+  }
 }
 
 runSmoke().catch((err) => {
