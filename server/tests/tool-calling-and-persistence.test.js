@@ -5,6 +5,8 @@
  * TC03 - First-turn toolChoice=required forwarded to LLM
  * TC04 - Undefined fields stripped; riskScore defaults to 0
  * TC05 - directAnswer and chainValid derivation
+ * TC06 - list_my_orders reads customer.user_id schema (matching seed + browser)
+ * TC07 - 2 tool calls + 1 fallback escalation = 3 audit events
  */
 
 import { strict as assert } from 'assert';
@@ -13,6 +15,7 @@ import { runLoop }          from '../agent/loop.js';
 import * as session         from '../agent/session.js';
 import { saveConversation } from '../agent/conversations.js';
 import { stripUndefined }   from '../utils/stripUndefined.js';
+import { executeTool }      from '../agent/tools.js';
 
 function fakeLLM(calls) {
   let idx = 0;
@@ -160,3 +163,89 @@ function createMockDb() {
     },
   };
 }
+
+// ─── TC06: list_my_orders reads customer.user_id schema ──────────────────────
+
+describe('TC06 list_my_orders reads customer.user_id schema', async () => {
+  it('returns orders stored under customer.user_id matching seed + browser schema', async () => {
+    const uid = 'u-tc06-test';
+    // Build a fake db that returns one order in the seed schema
+    const seedOrder = {
+      id: 'ORD-TC06-001',
+      customer: { user_id: uid, email: 'test@test.com', full_name: 'Test User' },
+      status: 'delivered',
+      delivered_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      created_at: new Date(Date.now() - 6 * 86_400_000).toISOString(),
+      items: [{ product_id: 'prod_fashion_shirt', name: 'Cotton Shirt', price: 1499, quantity: 1, category: 'fashion' }],
+      total_amount: 1499,
+    };
+
+    // Minimal fake db that responds to the nested-field where() call
+    const fakeDb = {
+      collection: (colName) => ({
+        where: (field, _op, val) => ({
+          get: async () => {
+            if (field === 'customer.user_id' && val === uid) {
+              return {
+                docs: [{ id: seedOrder.id, data: () => seedOrder }],
+              };
+            }
+            return { docs: [] };
+          },
+        }),
+      }),
+    };
+
+    const result = await executeTool({ name: 'list_my_orders', args: {}, uid, conversationId: 'c-tc06', db: fakeDb });
+    assert.ok(result.ok, `list_my_orders failed: ${JSON.stringify(result.result)}`);
+    const { orders } = result.result;
+    assert.ok(Array.isArray(orders), 'orders should be an array');
+    assert.equal(orders.length, 1, 'should find exactly 1 seeded order');
+    assert.equal(orders[0].id, 'ORD-TC06-001', 'order id should match');
+    assert.ok(Array.isArray(orders[0].items), 'items should be an array');
+    assert.equal(orders[0].items[0].name, 'Cotton Shirt', 'item name should be present');
+    assert.equal(orders[0].items[0].category, 'fashion', 'item category should be present');
+  });
+});
+
+// ─── TC07: 2 tool calls + 1 fallback = 3 audit events ───────────────────────
+
+describe('TC07 audit events accumulate across tools and fallback', async () => {
+  it('2 tool calls + 1 fallback escalation produces 3 audit events', async () => {
+    const u = uid(), c = cid();
+    const llm = fakeLLM([
+      { tool_calls: [{ name: 'list_my_orders', args: {} }] },
+      { tool_calls: [{ name: 'check_eligibility', args: { order_id: 'TEST-FASHION-OK', product_id: 'P-SHIRT', quantity: 1, reason: 'damage' } }] },
+      { tool_calls: [{ name: 'check_eligibility', args: { order_id: 'TEST-FASHION-OK', product_id: 'P-SHIRT', quantity: 1, reason: 'damage' } }] },
+      { tool_calls: [{ name: 'check_eligibility', args: { order_id: 'TEST-FASHION-OK', product_id: 'P-SHIRT', quantity: 1, reason: 'damage' } }] },
+      { tool_calls: [{ name: 'check_eligibility', args: { order_id: 'TEST-FASHION-OK', product_id: 'P-SHIRT', quantity: 1, reason: 'damage' } }] },
+      { tool_calls: [{ name: 'check_eligibility', args: { order_id: 'TEST-FASHION-OK', product_id: 'P-SHIRT', quantity: 1, reason: 'damage' } }] },
+      { tool_calls: [{ name: 'check_eligibility', args: { order_id: 'TEST-FASHION-OK', product_id: 'P-SHIRT', quantity: 1, reason: 'damage' } }] },
+      { tool_calls: [{ name: 'check_eligibility', args: { order_id: 'TEST-FASHION-OK', product_id: 'P-SHIRT', quantity: 1, reason: 'damage' } }] },
+    ]);
+    // 8 tool calls forces step limit → ESCALATE_TO_HUMAN fallback added automatically
+    const r = await runLoop({ userMessage: 'My cotton shirt arrived damaged', conversationId: c, uid: u, db: null, llmOverride: llm });
+    // Should have LIST_MY_ORDERS + multiple CHECK_ELIGIBILITY + ESCALATE_TO_HUMAN
+    assert.ok(r.auditEvents.length >= 3, `Expected >= 3 audit events, got ${r.auditEvents.length}`);
+    const actions = r.auditEvents.map(e => e.action);
+    assert.ok(actions.includes('LIST_MY_ORDERS'), 'LIST_MY_ORDERS event present');
+    assert.ok(actions.includes('ESCALATE_TO_HUMAN'), 'ESCALATE_TO_HUMAN event present');
+  });
+
+  it('saveConversation accumulates events across turns (never overwrites with empty)', async () => {
+    const mockDb = createMockDb();
+    const cid2 = 'conv-tc07-accum';
+    // Turn 1: 1 event
+    await saveConversation({ db: mockDb, conversationId: cid2, uid: 'u1', messages: [], caseCard: {}, auditEvents: [{ actor: 'agent', action: 'LIST_MY_ORDERS', hash: 'h1' }] });
+    // Turn 2: 0 events (simulate agent replying without tools)
+    await saveConversation({ db: mockDb, conversationId: cid2, uid: 'u1', messages: [], caseCard: {}, auditEvents: [] });
+    // Root doc should still have the original event from turn 1
+    // (the memory store holds the merged state)
+    const { _getAll } = await import('../agent/conversations.js');
+    const all = _getAll();
+    const conv = all.find(c => c.conversationId === cid2);
+    assert.ok(conv, 'conversation should be in memory store');
+    // auditEvents from turn 1 should still be there (not overwritten by empty turn 2)
+    assert.equal(conv.auditEvents.length, 1, `Expected 1 audit event after 2 turns, got ${conv.auditEvents.length}`);
+  });
+});

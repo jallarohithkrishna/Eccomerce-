@@ -277,27 +277,74 @@ export async function executeTool({ name, args, uid, conversationId, db }) {
 async function listMyOrders({ uid, db }) {
   if (!db) return ok({ orders: [] }); // test mode
   try {
-    const { query, collection, where, orderBy, limit, getDocs } = await import('firebase-admin/firestore');
-    const q = db.collection('orders')
-      .where('user_id', '==', uid)
-      .orderBy('created_at', 'desc')
-      .limit(10);
-    const snap = await q.get();
-    const orders = snap.docs.map(d => {
+    // The seed writes orders with `customer.user_id` (matching browser Orders.jsx).
+    // Accept all three field paths so old and new docs both work.
+    const [snapNested, snapFlat, snapCamel] = await Promise.all([
+      db.collection('orders').where('customer.user_id', '==', uid).get(),
+      db.collection('orders').where('user_id', '==', uid).get(),
+      db.collection('orders').where('userId',   '==', uid).get(),
+    ]);
+
+    // Merge & deduplicate by doc id
+    const seen = new Map();
+    for (const snap of [snapNested, snapFlat, snapCamel]) {
+      for (const d of snap.docs) {
+        if (!seen.has(d.id)) seen.set(d.id, d);
+      }
+    }
+
+    // Sort newest-first, limit 10
+    const docs = Array.from(seen.values())
+      .sort((a, b) => {
+        const tA = _tsMillis(a.data().created_at);
+        const tB = _tsMillis(b.data().created_at);
+        return tB - tA;
+      })
+      .slice(0, 10);
+
+    const orders = docs.map(d => {
       const data = d.data();
+      const deliveredAt = data.delivered_at || data.deliveredAt || null;
       return {
-        order_id:    d.id,
-        status:      data.status,
-        created_at:  data.created_at,
-        delivered_at: data.delivered_at,
-        item_count:  (data.items || []).length,
-        total:       data.total,
+        id:           d.id,
+        order_id:     d.id,
+        status:       data.status,
+        delivered_at: deliveredAt,
+        returnable_until: _returnableUntil(data),
+        items: (data.items || []).map(i => ({
+          name:     i.name     || '',
+          price:    i.price    || 0,
+          quantity: i.quantity || 1,
+          category: i.category || 'standard',
+          product_id: i.product_id || i.productId || '',
+        })),
       };
     });
     return ok({ orders });
   } catch (e) {
     return err(`Failed to list orders: ${e.message}`);
   }
+}
+
+/** Convert a Firestore Timestamp or ISO string to epoch ms */
+function _tsMillis(val) {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') return new Date(val).getTime() || 0;
+  if (typeof val.toMillis === 'function') return val.toMillis();
+  if (typeof val.toDate  === 'function') return val.toDate().getTime();
+  return 0;
+}
+
+/** Compute returnable_until ISO string from delivered_at + return window (default 10 days) */
+function _returnableUntil(data) {
+  const raw = data.delivered_at || data.deliveredAt;
+  if (!raw) return null;
+  const deliveredMs = _tsMillis(raw);
+  if (!deliveredMs) return null;
+  const windowDays = data.return_policy?.window_days ||
+    (data.items?.[0]?.return_policy?.window_days) || 10;
+  return new Date(deliveredMs + windowDays * 86_400_000).toISOString();
 }
 
 async function getOrder({ orderId, uid, db }) {
@@ -308,17 +355,17 @@ async function getOrder({ orderId, uid, db }) {
     }
     return err(`Order ${orderId} not found`);
   }
-  const result = await verifyOrderForReturn({ db, orderId, userId: uid, productId: '_probe', quantity: 0 })
-    .catch(() => null);
-  // verifyOrderForReturn checks item membership which will fail for _probe; use direct fetch
+  // Direct fetch — verifyOrderForReturn requires a real product_id so we do ownership ourselves
   try {
     const doc = await db.collection('orders').doc(orderId).get();
     if (!doc.exists) return err(`Order ${orderId} not found`);
     const data = doc.data();
-    if (data.user_id !== uid && data.userId !== uid) {
+    // Accept customer.user_id (seed), user_id, or userId
+    const owner = data.customer?.user_id || data.user_id || data.userId;
+    if (owner !== uid) {
       return err('You are not authorised to view this order.');
     }
-    return ok({ order: { order_id: doc.id, ...data } });
+    return ok({ order: { id: doc.id, order_id: doc.id, ...data } });
   } catch (e) {
     return err(`Failed to get order: ${e.message}`);
   }

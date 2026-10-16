@@ -51,8 +51,9 @@ export async function verifyOrderForReturn({ db, orderId, userId, productId, qua
 
   const order = { id: orderDoc.id, ...orderDoc.data() };
 
-  // Ownership check
-  if (order.user_id !== userId && order.userId !== userId) {
+  // Ownership check — accept customer.user_id (seed schema), user_id, or userId
+  const orderOwner = order.customer?.user_id || order.user_id || order.userId;
+  if (orderOwner !== userId) {
     return { verified: false, failureCode: 'UNAUTHORIZED', failureReason: 'Order does not belong to requesting user.' };
   }
 
