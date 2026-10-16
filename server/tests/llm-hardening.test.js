@@ -395,6 +395,51 @@ describe('Agent — Daily Request Cap & Scripted Fallback', () => {
   });
 });
 
+describe('Agent Loop — Rate Limit Detection & Escalation Reason Safety', () => {
+  it('LLM07d: treats "rate-limited upstream" (Poolside provider wording) as a rate-limit, not a hard error', async () => {
+    // Poolside's 429 body says "rate-limited upstream" — old regex missed it
+    const upstreamLimitedLLM = async () => {
+      const err = new Error('poolside/laguna-s-2.1:free is temporarily rate-limited upstream. Please retry shortly.');
+      err.status = 429;
+      throw err;
+    };
+
+    const res = await runLoop({
+      userMessage: 'I want to return an item',
+      conversationId: 'conv_upstream_rl',
+      uid: 'cust_upstream_rl',
+      llmOverride: upstreamLimitedLLM,
+    });
+
+    // Must hit busy path (count=1), NOT escalate
+    assert.equal(res.reply, 'The assistant is busy right now - please try again in a minute');
+    assert.equal(res.auditEvents.some(e => e.action === 'ESCALATE_TO_HUMAN'), false);
+  });
+
+  it('LLM07e: escalation reason is truncated to ≤450 chars when LLM error message is very long', async () => {
+    // Simulate a genuine non-rate-limit server error whose message is very long
+    // (must NOT match the rate-limit regex so it takes the escalation path)
+    const longBody = JSON.stringify({ error: { message: 'Internal provider error', code: 500, detail: 'x'.repeat(600) } });
+    const longMessage = `LLM API error (model) 500 Internal Server Error: ${longBody}`;
+    const longErrLLM = async () => {
+      const err = new Error(longMessage);
+      err.status = 500;
+      throw err;
+    };
+
+    const cId = 'conv_long_reason_esc';
+    const uid = 'cust_long_reason';
+
+    const res = await runLoop({ userMessage: 'help', conversationId: cId, uid, llmOverride: longErrLLM });
+
+    const escEvent = res.auditEvents.find(e => e.action === 'ESCALATE_TO_HUMAN');
+    assert.ok(escEvent, 'should have ESCALATE_TO_HUMAN event');
+    const reasonUsed = escEvent?.data?.reason || '';
+    assert.ok(reasonUsed.length <= 500, `escalation reason must be ≤500 chars, was ${reasonUsed.length}`);
+    assert.ok(reasonUsed.endsWith('...'), 'truncated reason should end with ellipsis');
+  });
+});
+
 describe('Agent — Grounding Verification', () => {
   it('LLM08: replaces hallucinated refund amounts with safe template built from tool results', () => {
     const toolResults = [{

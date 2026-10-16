@@ -241,10 +241,13 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
       }
 
       if (finalErr) {
+        // Detect rate-limit from HTTP status, error code, or message text.
+        // Covers: OpenRouter free-tier, Poolside upstream pool, generic 429 wording.
         const isRateLimit = finalErr.status === 429 ||
           finalErr.code === 'RATE_LIMIT' ||
           finalErr.code === 'RATE_LIMITED' ||
-          /429|rate[- ]limit|quota|free-models-per-min|too many requests/i.test(finalErr.message || '');
+          /429|rate[- ]limit(?:ed)?(?:\s+upstream)?|quota|free-models-per-min|too many requests/i
+            .test(finalErr.message || '');
 
         const failInfo = session.recordFailure(conversationId, isRateLimit);
 
@@ -252,7 +255,10 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
           finalReply = "The assistant is busy right now - please try again in a minute";
           break;
         } else {
-          await _doEscalate({ uid, conversationId, db, reason: `LLM error: ${finalErr.message}`, messages, auditEvents });
+          // Truncate reason to ≤450 chars so escalate_to_human passes its ≤500-char validation.
+          const rawReason = `LLM error: ${finalErr.message}`;
+          const escalationReason = rawReason.length > 450 ? rawReason.slice(0, 447) + '...' : rawReason;
+          await _doEscalate({ uid, conversationId, db, reason: escalationReason, messages, auditEvents });
           finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
           break;
         }
@@ -373,7 +379,7 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
     }
   }
 
-  // Step limit exceeded without finalReply
+  // Step limit / loop timeout without finalReply — reason is always short, no truncation needed
   if (!finalReply && steps >= MAX_STEPS) {
     await _doEscalate({ uid, conversationId, db, reason: `Step limit (${MAX_STEPS}) reached`, messages, auditEvents });
     finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
