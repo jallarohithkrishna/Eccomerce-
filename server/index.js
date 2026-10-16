@@ -519,7 +519,7 @@ app.post('/agent/chat',
         res.write(`data: ${JSON.stringify({ done: true, caseCard, auditEventCount: auditEvents.length })}\n\n`);
         res.end();
       } else {
-        res.json({ reply, caseCard, auditEventCount: auditEvents.length });
+        res.json({ reply, caseCard, auditEventCount: auditEvents.length, toolCalls });
       }
     } catch (err) {
       console.error('/agent/chat error:', err);

@@ -240,6 +240,13 @@ async function runSmoke() {
       finalCard = chatRes.caseCard || {};
 
       console.log(`Agent Reply: "${finalReply}"`);
+      // Print which tools fired this turn
+      const turnTools = chatRes.toolCalls || [];
+      if (turnTools.length > 0) {
+        console.log(`Tools This Turn:  ${turnTools.join(', ')}`);
+      } else {
+        console.log(`Tools This Turn:  (none)`);
+      }
       if (finalCard.state) {
         console.log(`Case Card State:  ${finalCard.state}`);
       }
@@ -249,8 +256,9 @@ async function runSmoke() {
       if (finalCard.rma) {
         console.log(`RMA Code:         ${finalCard.rma}`);
       }
-      if (finalCard.refund_amount !== undefined) {
-        console.log(`Refund Amount:    ₹${finalCard.refund_amount}`);
+      if (finalCard.refund_amount !== undefined && finalCard.refund_amount !== null) {
+        const amt = typeof finalCard.refund_amount === 'number' ? `₹${finalCard.refund_amount}` : 'N/A';
+        console.log(`Refund Amount:    ${amt}`);
       }
 
       transcript.turns.push({
@@ -258,6 +266,7 @@ async function runSmoke() {
         input: currentInput,
         reply: finalReply,
         caseCard: finalCard,
+        toolCalls: turnTools,
         auditEventCount: chatRes.auditEventCount,
       });
 
