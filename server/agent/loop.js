@@ -210,6 +210,7 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
       });
     } catch (llmErr) {
       // If the provider rejected tool_choice: "required", retry once with "auto"
+      let finalErr = llmErr;
       if (toolChoice === 'required') {
         try {
           llmResult = await llmCall({
@@ -219,18 +220,32 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
             maxTokens:   512,
             temperature: 0,
           });
+          finalErr = null;
         } catch (retryErr) {
-          await _doEscalate({ uid, conversationId, db, reason: `LLM error: ${retryErr.message}`, messages, auditEvents });
+          finalErr = retryErr;
+        }
+      }
+
+      if (finalErr) {
+        const isRateLimit = finalErr.status === 429 ||
+          finalErr.code === 'RATE_LIMIT' ||
+          finalErr.code === 'RATE_LIMITED' ||
+          /429|rate[- ]limit|quota|free-models-per-min|too many requests/i.test(finalErr.message || '');
+
+        const failInfo = session.recordFailure(conversationId, isRateLimit);
+
+        if (isRateLimit && failInfo.count < 3) {
+          finalReply = "The assistant is busy right now - please try again in a minute";
+          break;
+        } else {
+          await _doEscalate({ uid, conversationId, db, reason: `LLM error: ${finalErr.message}`, messages, auditEvents });
           finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
           break;
         }
-      } else {
-        // Scripted fallback on LLM failure: escalate with transcript and notify customer
-        await _doEscalate({ uid, conversationId, db, reason: `LLM error: ${llmErr.message}`, messages, auditEvents });
-        finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
-        break;
       }
     }
+
+    session.resetConsecutiveFailures(conversationId);
 
     const { message, finish_reason } = llmResult;
 

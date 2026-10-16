@@ -333,6 +333,66 @@ describe('Agent — Daily Request Cap & Scripted Fallback', () => {
     assert.ok(res.reply.includes('passed your request to our team'));
     assert.ok(res.auditEvents.some(e => e.action === 'ESCALATE_TO_HUMAN'));
   });
+
+  it('LLM07b: transient 429 returns busy message without escalating to human, preserving tool events', async () => {
+    let callCount = 0;
+    const rateLimitedLLM = async () => {
+      callCount++;
+      if (callCount === 1) {
+        // First call calls list_my_orders tool
+        return {
+          message: {
+            role: 'assistant',
+            tool_calls: [{ id: 'tc1', function: { name: 'list_my_orders', arguments: '{}' } }],
+          },
+          finish_reason: 'tool_calls',
+        };
+      }
+      // Second call fails with 429
+      const err = new Error('Rate limit exceeded: free-models-per-min');
+      err.status = 429;
+      throw err;
+    };
+
+    const res = await runLoop({
+      userMessage: 'I need to return an item',
+      conversationId: 'conv_rate_limit_transient',
+      uid: 'cust_rl_1',
+      llmOverride: rateLimitedLLM,
+    });
+
+    assert.equal(res.reply, 'The assistant is busy right now - please try again in a minute');
+    // Must NOT have escalated
+    assert.equal(res.auditEvents.some(e => e.action === 'ESCALATE_TO_HUMAN'), false);
+    // Preserved tool result from same turn
+    assert.ok(res.auditEvents.some(e => e.action === 'LIST_MY_ORDERS'));
+  });
+
+  it('LLM07c: escalates to human after 3 consecutive rate-limit failures in one conversation', async () => {
+    const rateLimitedLLM = async () => {
+      const err = new Error('Rate limit exceeded: 429');
+      err.status = 429;
+      throw err;
+    };
+
+    const cId = 'conv_rl_3_strikes';
+    const uid = 'cust_rl_3';
+
+    // Strike 1
+    const res1 = await runLoop({ userMessage: 'msg 1', conversationId: cId, uid, llmOverride: rateLimitedLLM });
+    assert.equal(res1.reply, 'The assistant is busy right now - please try again in a minute');
+    assert.equal(res1.auditEvents.some(e => e.action === 'ESCALATE_TO_HUMAN'), false);
+
+    // Strike 2
+    const res2 = await runLoop({ userMessage: 'msg 2', conversationId: cId, uid, llmOverride: rateLimitedLLM });
+    assert.equal(res2.reply, 'The assistant is busy right now - please try again in a minute');
+    assert.equal(res2.auditEvents.some(e => e.action === 'ESCALATE_TO_HUMAN'), false);
+
+    // Strike 3 -> Escalates!
+    const res3 = await runLoop({ userMessage: 'msg 3', conversationId: cId, uid, llmOverride: rateLimitedLLM });
+    assert.ok(res3.reply.includes('passed your request to our team'));
+    assert.ok(res3.auditEvents.some(e => e.action === 'ESCALATE_TO_HUMAN'));
+  });
 });
 
 describe('Agent — Grounding Verification', () => {

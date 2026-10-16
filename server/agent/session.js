@@ -42,6 +42,8 @@ export function getOrCreate(conversationId, uid) {
     messages:         [],
     eligibilityCache: new Map(),
     askRetries:       0,
+    consecutiveFailures: 0,
+    lastFailureWasRateLimit: false,
     returnId:         null,
     currentState:     null,
     createdAt:        Date.now(),
@@ -108,6 +110,38 @@ export function incrementAskRetry(conversationId) {
 export function resetAskRetry(conversationId) {
   const s = store.get(conversationId);
   if (s) { s.askRetries = 0; s.updatedAt = Date.now(); }
+}
+
+/**
+ * Record a failure in the session. Returns the updated consecutive count and flag.
+ */
+export function recordFailure(conversationId, isRateLimit = false) {
+  const s = store.get(conversationId);
+  if (!s) return { count: 1, isRateLimit };
+  s.consecutiveFailures = (s.consecutiveFailures || 0) + 1;
+  s.lastFailureWasRateLimit = isRateLimit;
+  s.updatedAt = Date.now();
+  return { count: s.consecutiveFailures, isRateLimit };
+}
+
+/**
+ * Reset consecutive failures counter on successful model turn.
+ */
+export function resetConsecutiveFailures(conversationId) {
+  const s = store.get(conversationId);
+  if (s) {
+    s.consecutiveFailures = 0;
+    s.lastFailureWasRateLimit = false;
+    s.updatedAt = Date.now();
+  }
+}
+
+/**
+ * Get the current consecutive failure count for a session.
+ */
+export function getConsecutiveFailures(conversationId) {
+  const s = store.get(conversationId);
+  return s?.consecutiveFailures || 0;
 }
 
 /**
