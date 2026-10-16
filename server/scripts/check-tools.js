@@ -15,6 +15,7 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { executeTool } from '../agent/tools.js';
+import * as session from '../agent/session.js';
 
 process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
 process.env.FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
@@ -37,7 +38,11 @@ async function main() {
   console.log('───────────────────────────────────────────────────────────────────────────────\n');
 
   // 1. list_my_orders
+  // Pre-create the session so check_eligibility can call session.storeEligibility
+  session.getOrCreate(conversationId, uid);
+
   console.log('▶ [1] Executing tool: list_my_orders');
+
   const listRes = await executeTool({
     name: 'list_my_orders',
     args: {},
