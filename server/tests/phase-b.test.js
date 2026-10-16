@@ -288,6 +288,41 @@ describe('PB11 — ask_customer tool returns question for chip rendering', async
     // The UI parses the reply for chip keywords (Refund / Exchange / Store credit)
     assert.match(r.reply, /option|prefer|refund|exchange|credit|choose/i, 'reply should show options');
   });
+
+  it('PB11b — empty reply after ask_customer uses question text', async () => {
+    const u = uid(); const c = cid();
+    const questionText = 'Could you please confirm the delivery date of the shirt?';
+
+    const llm = fakeLLM([
+      { tool_calls: [{ name: 'ask_customer', args: { question: questionText } }] },
+      { content: '' }, // model produced empty text
+    ]);
+
+    const r = await runLoop({
+      userMessage: 'I want to return my shirt',
+      conversationId: c, uid: u, db: null, llmOverride: llm,
+    });
+
+    assert.equal(r.reply, questionText);
+  });
+
+  it('PB11c — empty reply after request_evidence uses evidence request text', async () => {
+    const u = uid(); const c = cid();
+    const reasonText = 'Please provide a clear photo of the damaged collar';
+
+    const llm = fakeLLM([
+      { tool_calls: [{ name: 'request_evidence', args: { reason: reasonText } }] },
+      { content: '   ' }, // model produced whitespace only
+    ]);
+
+    const r = await runLoop({
+      userMessage: 'I want to return my shirt',
+      conversationId: c, uid: u, db: null, llmOverride: llm,
+    });
+
+    assert.ok(r.reply.includes(reasonText));
+    assert.ok(r.reply.length > 0);
+  });
 });
 
 // ─── PB12: evidence analysis wrapped as untrusted data ────────────────────

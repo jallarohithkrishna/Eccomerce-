@@ -195,6 +195,7 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
   const toolResultsThisTurn = [];
   let   steps               = 0;
   let   finalReply          = null;
+  let   lastExecutedTool    = null;
 
   const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
 
@@ -268,7 +269,16 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
 
     // No more tool calls → final text reply
     if (finish_reason === 'stop' || !message.tool_calls?.length) {
-      finalReply = message.content || '';
+      finalReply = (message.content || '').trim();
+      if (!finalReply && lastExecutedTool) {
+        if (lastExecutedTool.name === 'ask_customer') {
+          finalReply = lastExecutedTool.args?.question || lastExecutedTool.result?.question || '';
+        } else if (lastExecutedTool.name === 'request_evidence') {
+          const hint = lastExecutedTool.result?.upload_hint;
+          const reason = lastExecutedTool.args?.reason || lastExecutedTool.result?.reason;
+          finalReply = reason ? (hint ? `${reason}. ${hint}` : reason) : (hint || '');
+        }
+      }
       break;
     }
 
@@ -311,6 +321,7 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
 
     // Execute tool
     const execResult = await executeTool({ name: toolName, args: toolArgs, uid, conversationId, db });
+    lastExecutedTool = { name: toolName, args: toolArgs, result: execResult.result };
 
     // Audit event for tool call
     currentSeq++;
@@ -366,6 +377,17 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
   if (!finalReply && steps >= MAX_STEPS) {
     await _doEscalate({ uid, conversationId, db, reason: `Step limit (${MAX_STEPS}) reached`, messages, auditEvents });
     finalReply = "I've passed your request to our team and a specialist will follow up shortly.";
+  }
+
+  // If reply is empty and last tool was ask_customer or request_evidence, populate from tool
+  if (!finalReply && lastExecutedTool) {
+    if (lastExecutedTool.name === 'ask_customer') {
+      finalReply = lastExecutedTool.args?.question || lastExecutedTool.result?.question || '';
+    } else if (lastExecutedTool.name === 'request_evidence') {
+      const hint = lastExecutedTool.result?.upload_hint;
+      const reason = lastExecutedTool.args?.reason || lastExecutedTool.result?.reason;
+      finalReply = reason ? (hint ? `${reason}. ${hint}` : reason) : (hint || '');
+    }
   }
 
   // 6. Grounding check on final reply
