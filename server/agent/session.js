@@ -44,6 +44,8 @@ export function getOrCreate(conversationId, uid) {
     askRetries:       0,
     consecutiveFailures: 0,
     lastFailureWasRateLimit: false,
+    lastAuditEvent:   null,
+    auditEvents:      [],
     returnId:         null,
     currentState:     null,
     createdAt:        Date.now(),
@@ -142,6 +144,27 @@ export function resetConsecutiveFailures(conversationId) {
 export function getConsecutiveFailures(conversationId) {
   const s = store.get(conversationId);
   return s?.consecutiveFailures || 0;
+}
+
+/**
+ * Get the last audit event for this session (for continuing the hash chain).
+ */
+export function getLastAuditEvent(conversationId) {
+  const s = store.get(conversationId);
+  return s?.lastAuditEvent || null;
+}
+
+/**
+ * Record an audit event into the session to track prevHash and seq.
+ */
+export function setLastAuditEvent(conversationId, event) {
+  const s = store.get(conversationId);
+  if (s) {
+    s.lastAuditEvent = event;
+    if (!s.auditEvents) s.auditEvents = [];
+    s.auditEvents.push(event);
+    s.updatedAt = Date.now();
+  }
 }
 
 /**

@@ -23,7 +23,7 @@ export const GENESIS_HASH = '0'.repeat(64);
  * @param {string} [params.isoTimestamp] - Override timestamp (for tests); defaults to now
  * @returns {{ hash: string, previousHash: string, returnId: string, actor: string, action: string, data: Object, timestamp: string }}
  */
-export function createEvent({ returnId, previousHash, actor, action, data, isoTimestamp }) {
+export function createEvent({ returnId, previousHash, actor, action, data, isoTimestamp, seq }) {
   if (!returnId)     throw new Error('returnId is required');
   if (!actor)        throw new Error('actor is required');
   if (!action)       throw new Error('action is required');
@@ -35,7 +35,9 @@ export function createEvent({ returnId, previousHash, actor, action, data, isoTi
   const payload   = JSON.stringify({ returnId, previousHash, actor, action, data, timestamp });
   const hash      = createHash('sha256').update(payload).digest('hex');
 
-  return { hash, previousHash, returnId, actor, action, data, timestamp };
+  const ev = { hash, previousHash, returnId, actor, action, data, timestamp };
+  if (seq !== undefined) ev.seq = seq;
+  return ev;
 }
 
 /**
@@ -75,6 +77,17 @@ export function verifyChain(events) {
         firstBadIndex: i,
         reason: `Event[${i}] previousHash does not match Event[${i - 1}] hash`,
       };
+    }
+
+    // Sequence continuity check (if seq is present on both)
+    if (i > 0 && ev.seq !== undefined && events[i - 1].seq !== undefined) {
+      if (ev.seq !== events[i - 1].seq + 1) {
+        return {
+          valid: false,
+          firstBadIndex: i,
+          reason: `Event[${i}] seq (${ev.seq}) does not follow Event[${i - 1}] seq (${events[i - 1].seq})`,
+        };
+      }
     }
   }
 

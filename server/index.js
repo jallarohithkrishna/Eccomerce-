@@ -552,14 +552,21 @@ app.post('/agent/evidence',
     const result = await analyzeEvidence({ imageBuffer: req.file.buffer, mimeType });
     const record = storeEvidence({ conversationId, ...result });
 
-    // Safe audit event
+    // Safe audit event linked to conversation's audit chain
+    const existingConv = await conversations.loadConversation({ db, conversationId, uid }).catch(() => null);
+    const lastEv = session.getLastAuditEvent(conversationId) || existingConv?.auditEvents?.at(-1);
+    const previousHash = lastEv ? lastEv.hash : GENESIS_HASH;
+    const seq = (lastEv?.seq || 0) + 1;
+
     const ev = createEvent({
       returnId:     conversationId,
-      previousHash: GENESIS_HASH,
+      previousHash,
       actor:        uid,
       action:       'EVIDENCE_UPLOADED',
       data:         { hash: result.hash, mimeType, sizeBytes: result.sizeBytes, verified: result.verified },
+      seq,
     });
+    session.setLastAuditEvent(conversationId, ev);
 
     res.json({
       evidenceId:  record.evidenceId,

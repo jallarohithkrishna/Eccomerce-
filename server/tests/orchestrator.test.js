@@ -20,6 +20,10 @@ import {
   GENESIS_HASH,
 } from '../returns/audit.js';
 
+import { runLoop } from '../agent/loop.js';
+import * as session from '../agent/session.js';
+import * as conversations from '../agent/conversations.js';
+
 import {
   initiateRefund,
   retryRefund,
@@ -206,6 +210,95 @@ describe('Audit Chain', () => {
     assert.equal(e1.hash, e2.hash);
     // Different returnId → different hash
     assert.notEqual(e1.hash, e3.hash);
+  });
+
+  it('AU06 multi-turn runLoop maintains continuous hash chain across turns, tool calls, and fallback', async () => {
+    const convId = 'conv_audit_chain_multiturn';
+    const uid = 'cust_chain_test';
+
+    // Turn 1: tool call (list_my_orders)
+    const turn1LLM = async () => ({
+      message: {
+        role: 'assistant',
+        tool_calls: [{ id: 'tc1', function: { name: 'list_my_orders', arguments: '{}' } }],
+      },
+      finish_reason: 'tool_calls',
+    });
+    // Turn 1 follow-up returns text
+    let turn1Step = 0;
+    const turn1Handler = async () => {
+      turn1Step++;
+      if (turn1Step === 1) return turn1LLM();
+      return { message: { role: 'assistant', content: 'Found your orders.' }, finish_reason: 'stop' };
+    };
+
+    const res1 = await runLoop({ userMessage: 'I want to return an item from my orders', conversationId: convId, uid, llmOverride: turn1Handler });
+    await conversations.saveConversation({ conversationId: convId, uid, messages: session.getMessages(convId), caseCard: res1.caseCard, auditEvents: res1.auditEvents });
+
+    // Turn 2: another tool call (get_return_status)
+    let turn2Step = 0;
+    const turn2Handler = async () => {
+      turn2Step++;
+      if (turn2Step === 1) {
+        return {
+          message: {
+            role: 'assistant',
+            tool_calls: [{ id: 'tc2', function: { name: 'get_return_status', arguments: JSON.stringify({ return_id: 'ret_test' }) } }],
+          },
+          finish_reason: 'tool_calls',
+        };
+      }
+      return { message: { role: 'assistant', content: 'Status is pending.' }, finish_reason: 'stop' };
+    };
+
+    const res2 = await runLoop({ userMessage: 'What is the return status for ret_test?', conversationId: convId, uid, llmOverride: turn2Handler });
+    await conversations.saveConversation({ conversationId: convId, uid, messages: session.getMessages(convId), caseCard: res2.caseCard, auditEvents: res2.auditEvents });
+
+    // Turn 3: triggers fallback and escalation
+    const failingLLM = async () => { throw new Error('Unrecoverable model crash'); };
+    const res3 = await runLoop({ userMessage: 'I need human help with my return', conversationId: convId, uid, llmOverride: failingLLM });
+    const finalConv = await conversations.saveConversation({ conversationId: convId, uid, messages: session.getMessages(convId), caseCard: res3.caseCard, auditEvents: res3.auditEvents });
+
+    // Verify the accumulated audit chain
+    const events = finalConv.auditEvents;
+    assert.ok(events.length >= 3, `Expected at least 3 events across turns, got ${events.length}`);
+    const chainCheck = verifyChain(events);
+    assert.equal(chainCheck.valid, true, `Chain failed: ${chainCheck.reason}`);
+
+    // Verify sequence numbers continue monotonically from 1
+    for (let i = 0; i < events.length; i++) {
+      assert.equal(events[i].seq, i + 1, `Event[${i}] has seq ${events[i].seq}, expected ${i + 1}`);
+      if (i > 0) {
+        assert.equal(events[i].previousHash, events[i - 1].hash);
+      }
+    }
+  });
+
+  it('AU07 tampering with an earlier event in a multi-turn chain is detected', async () => {
+    const convId = 'conv_tamper_test';
+    const uid = 'cust_tamper_test';
+
+    const fakeLLM = async () => ({
+      message: { role: 'assistant', tool_calls: [{ id: 'tc', function: { name: 'list_my_orders', arguments: '{}' } }] },
+      finish_reason: 'tool_calls',
+    });
+    let step = 0;
+    const handler = async () => {
+      step++;
+      if (step === 1) return fakeLLM();
+      return { message: { role: 'assistant', content: 'Done' }, finish_reason: 'stop' };
+    };
+
+    const res1 = await runLoop({ userMessage: 'I want to return an order', conversationId: convId, uid, llmOverride: handler });
+    const conv = await conversations.saveConversation({ conversationId: convId, uid, messages: [], caseCard: {}, auditEvents: res1.auditEvents });
+
+    // Tamper with event 0's data
+    const tampered = JSON.parse(JSON.stringify(conv.auditEvents));
+    tampered[0].data.injected = 'malicious';
+
+    const check = verifyChain(tampered);
+    assert.equal(check.valid, false);
+    assert.equal(check.firstBadIndex, 0);
   });
 });
 

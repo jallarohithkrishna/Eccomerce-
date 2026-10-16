@@ -10,6 +10,7 @@
 import { callLLM, classifyScope, PROMPT_VERSION, LLMError } from '../llm/client.js';
 import { executeTool, TOOL_DEFINITIONS }                    from './tools.js';
 import * as session                                         from './session.js';
+import * as conversations                                   from './conversations.js';
 import { createEvent, GENESIS_HASH }                        from '../returns/audit.js';
 
 const MAX_STEPS       = 8;
@@ -125,18 +126,31 @@ export function groundingCheck(reply, toolResultsThisTurn) {
 export async function runLoop({ userMessage, conversationId, uid, db = null, llmOverride = null }) {
   const llmCall = llmOverride || callLLM;
 
+  // Retrieve preceding event from session or persisted conversation to continue hash chain
+  const existingConv = await conversations.loadConversation({ db, conversationId, uid, isStaffOrAdmin: true }).catch(() => null);
+  const lastSavedEvent = existingConv?.auditEvents?.at(-1);
+  const lastSessionEvent = session.getLastAuditEvent(conversationId);
+  const prevEvent = lastSessionEvent || lastSavedEvent || null;
+
+  let previousHash = prevEvent ? prevEvent.hash : GENESIS_HASH;
+  let currentSeq   = prevEvent ? (prevEvent.seq || (existingConv?.auditEvents?.length || 1)) : 0;
+
   // 1. Daily cap check (counted in memory per uid and day)
   const daily = session.checkAndIncrementDailyUsage(uid);
   if (!daily.allowed) {
     const auditEvents = [];
+    currentSeq++;
     const ev = createEvent({
       returnId:     session.snapshot(conversationId)?.returnId || conversationId,
-      previousHash: GENESIS_HASH,
+      previousHash,
       actor:        'system',
       action:       'DAILY_CAP_EXCEEDED',
       data:         { uid, cap: daily.cap, current: daily.current },
+      seq:          currentSeq,
     });
     auditEvents.push(ev);
+    previousHash = ev.hash;
+    session.setLastAuditEvent(conversationId, ev);
     await _doEscalate({
       uid,
       conversationId,
@@ -180,7 +194,6 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
   const auditEvents         = [];
   const toolResultsThisTurn = [];
   let   steps               = 0;
-  let   previousHash        = GENESIS_HASH;
   let   finalReply          = null;
 
   const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
@@ -278,15 +291,18 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
       argsStr.includes('untrusted evidence') ||
       argsStr.includes('system:')
     ) {
+      currentSeq++;
       const injEvent = createEvent({
         returnId:     session.snapshot(conversationId)?.returnId || conversationId,
         previousHash,
         actor:        'agent',
         action:       'PROMPT_INJECTION_DETECTED',
         data:         { toolName, snippet: argsStr.slice(0, 200) },
+        seq:          currentSeq,
       });
       auditEvents.push(injEvent);
       previousHash = injEvent.hash;
+      session.setLastAuditEvent(conversationId, injEvent);
       const toolResultMsg = { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Unsafe arguments detected — call rejected.' }) };
       messages.push(toolResultMsg);
       session.appendMessage(conversationId, toolResultMsg);
@@ -297,6 +313,7 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
     const execResult = await executeTool({ name: toolName, args: toolArgs, uid, conversationId, db });
 
     // Audit event for tool call
+    currentSeq++;
     const auditEvent = createEvent({
       returnId:     session.snapshot(conversationId)?.returnId || conversationId,
       previousHash,
@@ -308,9 +325,11 @@ export async function runLoop({ userMessage, conversationId, uid, db = null, llm
         ok:           execResult.ok,
         model:        PROMPT_VERSION,
       },
+      seq:          currentSeq,
     });
     auditEvents.push(auditEvent);
     previousHash = auditEvent.hash;
+    session.setLastAuditEvent(conversationId, auditEvent);
 
     // Collect results for grounding check
     if (execResult.ok && execResult.result) {
@@ -390,14 +409,21 @@ async function _doEscalate({ uid, conversationId, db, reason, messages, auditEve
   try {
     const { executeTool: exec } = await import('./tools.js');
     const r = await exec({ name: 'escalate_to_human', args: { reason }, uid, conversationId, db });
+    const lastEv = (auditEvents && auditEvents.length > 0)
+      ? auditEvents[auditEvents.length - 1]
+      : session.getLastAuditEvent(conversationId);
+    const prevHash = lastEv ? lastEv.hash : GENESIS_HASH;
+    const seq = (lastEv?.seq || 0) + 1;
     const ev = createEvent({
       returnId:     session.snapshot(conversationId)?.returnId || conversationId,
-      previousHash: auditEvents.at(-1)?.hash || GENESIS_HASH,
+      previousHash: prevHash,
       actor:        'agent',
       action:       'ESCALATE_TO_HUMAN',
       data:         { reason, result: r?.result },
+      seq,
     });
     auditEvents.push(ev);
+    session.setLastAuditEvent(conversationId, ev);
   } catch { /* best-effort */ }
 }
 
