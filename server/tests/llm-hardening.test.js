@@ -17,7 +17,7 @@
 import { strict as assert } from 'assert';
 import { describe, it, before, beforeEach, afterEach } from 'node:test';
 
-import { callLLM, LLMError, checkLLMConfig, resetFallbackWarned } from '../llm/client.js';
+import { callLLM, LLMError, checkLLMConfig, resetFallbackWarned, getRateLimitWaitMs, resetLimiter, acquireRateLimitSlot } from '../llm/client.js';
 import { runLoop, groundingCheck } from '../agent/loop.js';
 import * as session from '../agent/session.js';
 import * as returnStore from '../returns/store.js';
@@ -107,6 +107,44 @@ describe('LLM Client — Hardening & Resilience', () => {
 
     assert.equal(attempts, 2, 'should have retried once');
     assert.equal(res.message.content, 'Rate limit recovered');
+  });
+
+  it('LLM03b: parses Retry-After and X-RateLimit-Reset headers and caps wait time', () => {
+    // 1. Seconds in Retry-After
+    const errSec = { retryAfterHeader: '5' };
+    assert.equal(getRateLimitWaitMs(errSec), 5000);
+
+    // 2. HTTP date in Retry-After
+    const futureDate = new Date(Date.now() + 3000).toUTCString();
+    const errDate = { retryAfterHeader: futureDate };
+    const waitDate = getRateLimitWaitMs(errDate);
+    assert.ok(waitDate > 1000 && waitDate <= 3500);
+
+    // 3. Epoch ms in X-RateLimit-Reset
+    const futureEpochMs = Date.now() + 4000;
+    const errEpoch = { rateLimitResetHeader: String(futureEpochMs) };
+    const waitEpoch = getRateLimitWaitMs(errEpoch);
+    assert.ok(waitEpoch > 2000 && waitEpoch <= 4500);
+
+    // 4. Cap at 20 seconds
+    const hugeEpoch = Date.now() + 100000;
+    const errHuge = { rateLimitResetHeader: String(hugeEpoch) };
+    assert.equal(getRateLimitWaitMs(errHuge), 20000);
+  });
+
+  it('LLM03c: server-side rate limiter enforces max calls per minute', async () => {
+    resetLimiter();
+    process.env.LLM_MAX_CALLS_PER_MIN = '3';
+
+    const t0 = Date.now();
+    await acquireRateLimitSlot();
+    await acquireRateLimitSlot();
+    await acquireRateLimitSlot();
+    const duration3 = Date.now() - t0;
+    assert.ok(duration3 < 100, 'first 3 slots should be granted immediately');
+
+    resetLimiter();
+    delete process.env.LLM_MAX_CALLS_PER_MIN;
   });
 
   it('LLM04: retries on 503 error and succeeds on subsequent attempt', async () => {

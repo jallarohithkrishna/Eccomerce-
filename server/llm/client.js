@@ -40,10 +40,79 @@ export function resetModelCallCount() {
   _modelCallCount = 0;
 }
 
+const callTimestamps = [];
+let limiterQueue = Promise.resolve();
+
+export function resetLimiter() {
+  callTimestamps.length = 0;
+  limiterQueue = Promise.resolve();
+}
+
+/**
+ * Ensures provider calls do not exceed LLM_MAX_CALLS_PER_MIN (default 15)
+ * within a 60-second sliding window by queuing them.
+ */
+export async function acquireRateLimitSlot() {
+  const maxCalls = process.env.LLM_MAX_CALLS_PER_MIN
+    ? parseInt(process.env.LLM_MAX_CALLS_PER_MIN, 10)
+    : (process.env.NODE_ENV === 'test' ? 0 : 15);
+  if (maxCalls <= 0) return;
+
+  const nextSlot = limiterQueue.then(async () => {
+    while (true) {
+      const now = Date.now();
+      while (callTimestamps.length > 0 && now - callTimestamps[0] >= 60000) {
+        callTimestamps.shift();
+      }
+
+      if (callTimestamps.length < maxCalls) {
+        callTimestamps.push(now);
+        return;
+      }
+
+      const waitTime = Math.max(50, 60000 - (now - callTimestamps[0]) + 10);
+      await new Promise(r => setTimeout(r, waitTime));
+    }
+  });
+
+  limiterQueue = nextSlot.catch(() => {});
+  return nextSlot;
+}
+
+export function getRateLimitWaitMs(err, attempt = 0) {
+  let waitMs = 0;
+  if (err?.retryAfterHeader) {
+    const seconds = parseFloat(err.retryAfterHeader);
+    if (!isNaN(seconds)) {
+      waitMs = seconds * 1000;
+    } else {
+      const parsedDate = Date.parse(err.retryAfterHeader);
+      if (!isNaN(parsedDate)) {
+        waitMs = parsedDate - Date.now();
+      }
+    }
+  } else if (err?.rateLimitResetHeader) {
+    const resetVal = Number(err.rateLimitResetHeader);
+    if (!isNaN(resetVal)) {
+      const resetTimeMs = resetVal > 1e11 ? resetVal : resetVal * 1000;
+      waitMs = resetTimeMs - Date.now();
+    }
+  }
+
+  if (waitMs <= 0) {
+    waitMs = process.env.NODE_ENV === 'test' ? (50 * Math.pow(2, attempt)) : (1000 * Math.pow(2, attempt));
+  }
+
+  // Cap at 20s (20,000 ms) per call
+  return Math.min(Math.max(waitMs, 50), 20000);
+}
+
 /**
  * Execute a single HTTP call to the completions endpoint.
  */
 async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, toolChoice, maxTokens, temperature, timeoutMs, fetchImpl }) {
+  await acquireRateLimitSlot();
+
   const customFetch = fetchImpl || fetch;
   const body = {
     model,
@@ -82,7 +151,19 @@ async function _singleChatCall({ baseUrl, apiKey, model, messages, tools, toolCh
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new LLMError(`LLM API error (${model}) ${response.status}: ${text}`, 'API_ERROR', response.status);
+    const err = new LLMError(`LLM API error (${model}) ${response.status}: ${text}`, 'API_ERROR', response.status);
+    err.retryAfterHeader = response.headers?.get ? (response.headers.get('retry-after') || response.headers.get('Retry-After')) : null;
+    err.rateLimitResetHeader = response.headers?.get ? (response.headers.get('x-ratelimit-reset') || response.headers.get('X-RateLimit-Reset')) : null;
+    try {
+      const parsed = JSON.parse(text);
+      err.responseBody = parsed;
+      const meta = parsed?.error?.metadata?.headers;
+      if (meta) {
+        if (!err.retryAfterHeader && meta['Retry-After']) err.retryAfterHeader = meta['Retry-After'];
+        if (!err.rateLimitResetHeader && meta['X-RateLimit-Reset']) err.rateLimitResetHeader = meta['X-RateLimit-Reset'];
+      }
+    } catch {}
+    throw err;
   }
 
   const json = await response.json();
@@ -168,8 +249,10 @@ export async function callLLM({
         const canRetry = (isRetryableStatus || isTimeout) && attempt < maxRetries;
 
         if (canRetry) {
-          const backoffDelay = Math.min(50 * Math.pow(2, attempt), 1000);
-          await new Promise(r => setTimeout(r, backoffDelay));
+          const waitMs = (isRetryableStatus && err.status === 429)
+            ? getRateLimitWaitMs(err, attempt)
+            : Math.min(50 * Math.pow(2, attempt), 1000);
+          await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
 
