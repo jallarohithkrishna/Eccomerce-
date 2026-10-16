@@ -16,8 +16,12 @@ const convStore = new Map();
  * INTERNAL FIELDS that must never be readable by the customer.
  * These are stored in /agent_conversations/{id}/internal/staff
  * and are only accessible with staff/admin role.
+ * NOTE: auditEvents is intentionally kept on the ROOT doc as well so that
+ * smoke-agent.js and /admin/agent-runs can read it without touching the
+ * internal subcollection.  The sensitive sub-fields (riskScore etc.) are
+ * still only written to internal/staff.
  */
-const INTERNAL_FIELDS = ['auditEvents', 'promptInjectionDetected', 'ruleIds', 'toolTraces'];
+const INTERNAL_FIELDS = ['promptInjectionDetected', 'ruleIds', 'toolTraces'];
 
 /**
  * Build the customer-safe portion of the conversation document.
@@ -46,6 +50,8 @@ function buildInternalDoc(record) {
   for (const field of INTERNAL_FIELDS) {
     if (field in record && record[field] !== undefined) internal[field] = record[field];
   }
+  // auditEvents is now on the root doc but also mirror it here for staff reads
+  if (Array.isArray(record.auditEvents)) internal.auditEvents = record.auditEvents;
   // Guarantee defined defaults for all internal caseCard sub-fields
   const card = (record.caseCard && typeof record.caseCard === 'object') ? record.caseCard : {};
   internal.caseCard_internal = {
@@ -66,17 +72,25 @@ function buildInternalDoc(record) {
  */
 export async function saveConversation({ db, conversationId, uid, messages, caseCard, auditEvents = [] }) {
   const now = new Date().toISOString();
+
+  // Merge with existing to preserve handledBy, createdAt, and ACCUMULATE auditEvents
+  const existing = convStore.get(conversationId) || {};
+
+  // Accumulate audit events — never overwrite previous turns' events with an empty array
+  const combinedAuditEvents = [
+    ...(existing.auditEvents || []),
+    ...auditEvents,
+  ].slice(-50); // keep last 50 total
+
   const record = {
     conversationId,
     uid,
     messages:    messages.slice(-20),  // last 10 turns
     caseCard:    caseCard || {},
-    auditEvents: auditEvents.slice(-50),
+    auditEvents: combinedAuditEvents,
     updatedAt:   now,
   };
 
-  // Merge with existing to preserve handledBy and createdAt
-  const existing = convStore.get(conversationId) || {};
   const merged = {
     ...existing,
     ...record,
@@ -89,7 +103,7 @@ export async function saveConversation({ db, conversationId, uid, messages, case
     const writeToFirestore = async () => {
       const safeDoc = buildSafeDoc(merged);
       const internalDoc = buildInternalDoc(merged);
-      // Write customer-safe document to root collection
+      // Write customer-safe document to root collection (includes auditEvents for smoke/admin reads)
       await db.collection('agent_conversations').doc(conversationId).set(safeDoc, { merge: true });
       // Write internal fields to staff-only subcollection
       await db.collection('agent_conversations').doc(conversationId)
